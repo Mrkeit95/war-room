@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>The War Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000000;
+    --canvas: #050505;
+    --surface: #0c0c0d;
+    --surface-2: #131315;
+    --surface-3: #1a1a1c;
+    --border: rgba(255,255,255,0.06);
+    --border-strong: rgba(255,255,255,0.10);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #6a6a70;
+    --text-4: #46464a;
+    --green: #4ade80;
+    --yellow: #fde047;
+    --amber: #fbbf24;
+    --orange: #fb923c;
+    --red: #ef4444;
+    --blue: #60a5fa;
+    --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 14px; line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.01em;
+  }
+  .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+
+  /* SIDEBAR */
+  .sidebar {
+    background: var(--bg); border-right: 1px solid var(--border);
+    padding: 24px 14px; position: sticky; top: 0;
+    height: 100vh; overflow-y: auto;
+    display: flex; flex-direction: column;
+  }
+  .brand { padding: 6px 12px 32px; }
+  .brand-name { font-size: 15px; font-weight: 700; letter-spacing: 0.32em; line-height: 1; }
+  .brand-divider { height: 1px; background: var(--border); margin-top: 12px; }
+  .nav-group { margin-bottom: 18px; }
+  .nav-group-label {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--text-4); padding: 0 12px 8px; font-weight: 500;
+  }
+  .nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 12px; border-radius: 8px;
+    color: var(--text-2); font-size: 13.5px;
+    cursor: pointer; transition: all 0.12s;
+    border: 1px solid transparent; user-select: none;
+  }
+  .nav-item:hover { background: var(--surface); color: var(--text); }
+  .nav-item.active { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+  .nav-item svg { width: 16px; height: 16px; stroke: currentColor; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto; font-size: 10px;
+    background: var(--surface-3); color: var(--text-2);
+    padding: 1px 7px; border-radius: 10px; font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .sidebar-user {
+    margin-top: auto;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 8px; border: 1px solid var(--border);
+  }
+  .avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #4ade80, #60a5fa);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; color: var(--bg); flex-shrink: 0;
+  }
+  .u-name { font-size: 13px; font-weight: 500; }
+  .u-role { font-size: 11px; color: var(--text-3); }
+
+  /* MAIN */
+  .main { background: var(--canvas); min-height: 100vh; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 32px;
+    border-bottom: 1px solid var(--border);
+    background: var(--canvas);
+    position: sticky; top: 0; z-index: 20;
+    backdrop-filter: blur(8px);
+  }
+  .topbar-title { font-size: 15px; font-weight: 500; letter-spacing: -0.005em; }
+  .topbar-actions { display: flex; align-items: center; gap: 14px; }
+  .search-wrap { position: relative; width: 280px; }
+  .search-input {
+    width: 100%; background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 8px 12px 8px 34px;
+    border-radius: 8px; font-size: 13px; font-family: inherit; outline: none;
+    transition: all 0.12s;
+  }
+  .search-input:focus { border-color: var(--border-strong); background: var(--surface-2); }
+  .search-input::placeholder { color: var(--text-4); }
+  .search-icon {
+    position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px; color: var(--text-3); pointer-events: none;
+  }
+  .search-results {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0;
+    background: var(--surface-2); border: 1px solid var(--border-strong);
+    border-radius: 10px; padding: 6px;
+    max-height: 360px; overflow-y: auto;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    z-index: 100; display: none;
+  }
+  .search-results.open { display: block; }
+  .search-result {
+    padding: 10px 12px; border-radius: 6px; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .search-result:hover { background: var(--surface-3); }
+  .sr-grade {
+    width: 24px; height: 24px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 600; font-size: 11px; flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .sr-name { font-size: 13px; font-weight: 500; }
+  .sr-info { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+  .search-empty { padding: 18px; text-align: center; color: var(--text-3); font-size: 13px; }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 8px;
+    background: var(--surface); border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2); cursor: pointer; position: relative;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+  .icon-btn svg { width: 16px; height: 16px; stroke: currentColor; }
+  .badge-dot {
+    position: absolute; top: 6px; right: 6px;
+    width: 7px; height: 7px; background: var(--green);
+    border-radius: 50%; border: 2px solid var(--canvas);
+  }
+  .content { padding: 28px 32px 60px; max-width: 1640px; margin: 0 auto; }
+
+  .page-heading { margin-bottom: 28px; }
+  .page-heading h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .page-heading .ph-sub { font-size: 13.5px; color: var(--text-3); }
+
+  /* Hero */
+  .hero-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 14px; }
+  .hero-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 22px 24px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .hero-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+  .hero-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+  .hero-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--text-3); font-weight: 500; }
+  .hero-icon {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--surface-3); color: var(--text-2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hero-icon svg { width: 14px; height: 14px; }
+  .hero-value { font-size: 36px; font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
+  .hero-meta { margin-top: 8px; font-size: 12px; color: var(--text-3); display: flex; justify-content: space-between; }
+  .hero-meta .delta { color: var(--green); font-weight: 500; }
+  .hero-meta .delta.down { color: var(--red); }
+  .hero-progress { margin-top: 14px; height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+  .hero-progress-fill { height: 100%; border-radius: 2px; }
+  .hp-green { background: var(--green); box-shadow: 0 0 12px rgba(74,222,128,0.4); }
+  .hp-yellow { background: var(--yellow); box-shadow: 0 0 12px rgba(253,224,71,0.3); }
+  .hp-amber { background: var(--amber); }
+  .hp-red { background: var(--red); }
+
+  /* Department row */
+  .dept-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 32px; }
+  .dept-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 22px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .dept-card:hover { border-color: var(--border-strong); background: var(--surface-2); }
+  .dept-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+  .dept-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-3); font-weight: 500; margin-bottom: 6px; }
+  .dept-manager { font-size: 12px; color: var(--text-3); }
+  .dept-pct { font-size: 32px; font-weight: 700; letter-spacing: -0.025em; line-height: 1; margin-bottom: 4px; }
+  .dept-pct-sub { font-size: 11px; color: var(--text-3); margin-bottom: 14px; }
+  .dept-bar { height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; margin-bottom: 16px; }
+  .dept-bar-fill { height: 100%; border-radius: 2px; }
+  .dept-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; font-size: 12px; }
+  .dept-stat { display: flex; justify-content: space-between; }
+  .dept-stat-label { color: var(--text-3); }
+  .dept-stat-value { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  .dept-stat-value.up { color: var(--green); }
+  .dept-stat-value.down { color: var(--red); }
+
+  /* Two col */
+  .two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; margin-bottom: 32px; }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .panel-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--text-3); font-weight: 500;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-title svg { width: 14px; height: 14px; }
+  .panel-link { font-size: 12px; color: var(--text-3); cursor: pointer; transition: color 0.12s; }
+  .panel-link:hover { color: var(--text); }
+
+  .time-toggle {
+    display: inline-flex; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 3px; margin-bottom: 18px;
+  }
+  .time-btn {
+    background: none; border: none; color: var(--text-3); font-family: inherit;
+    font-size: 12px; font-weight: 500; padding: 6px 14px; border-radius: 5px;
+    cursor: pointer; transition: all 0.12s;
+  }
+  .time-btn:hover { color: var(--text); }
+  .time-btn.active { background: var(--surface-3); color: var(--text); }
+
+  /* Ranked */
+  .ranked-list { display: flex; flex-direction: column; gap: 14px; }
+  .ranked-row { display: flex; align-items: center; gap: 14px; cursor: pointer; }
+  .ranked-num { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-3); width: 16px; flex-shrink: 0; }
+  .ranked-avatar {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: var(--surface-3); color: var(--text-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; flex-shrink: 0;
+  }
+  .ranked-body { flex: 1; min-width: 0; }
+  .ranked-name { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+  .ranked-bar { height: 4px; background: var(--surface-3); border-radius: 2px; overflow: hidden; }
+  .ranked-bar-fill { height: 100%; border-radius: 2px; }
+  .ranked-pct { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2); text-align: right; width: 56px; flex-shrink: 0; }
+
+  /* Upcoming */
+  .upcoming-list { display: flex; flex-direction: column; }
+  .upcoming-row { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .upcoming-row:last-child { border-bottom: none; }
+  .upcoming-bar { width: 3px; border-radius: 1.5px; flex-shrink: 0; background: var(--yellow); }
+  .upcoming-bar.green { background: var(--green); }
+  .upcoming-bar.red { background: var(--red); }
+  .upcoming-body { flex: 1; min-width: 0; }
+  .upcoming-title { font-size: 13px; font-weight: 500; margin-bottom: 2px; }
+  .upcoming-meta { font-size: 11px; color: var(--text-3); }
+
+  /* Items */
+  .items { display: flex; flex-direction: column; gap: 8px; }
+  .group-label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--text-4); margin: 20px 0 10px; font-weight: 500;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .group-label:first-child { margin-top: 0; }
+  .item {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+    display: flex; gap: 14px;
+    cursor: pointer; position: relative; transition: all 0.12s;
+  }
+  .item::before {
+    content: ""; position: absolute; left: 0; top: 14px; bottom: 14px;
+    width: 2px; background: var(--text-4); border-radius: 0 1px 1px 0;
+  }
+  .item:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .item.critical::before { background: var(--red); }
+  .item.warning::before { background: var(--amber); }
+  .item.info::before { background: var(--blue); }
+  .item.forecast::before { background: var(--blue); }
+  .item.rhythm::before { background: var(--green); }
+  .item.personal::before { background: var(--violet); }
+  .item.spotlight::before { background: var(--yellow); }
+  .item.done { opacity: 0.45; }
+  .item.done .item-title { text-decoration: line-through; }
+  .checkbox {
+    width: 18px; height: 18px;
+    border: 1.5px solid var(--text-4); border-radius: 5px;
+    flex-shrink: 0; margin-top: 2px; margin-left: 4px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.12s;
+  }
+  .checkbox:hover { border-color: var(--text-2); }
+  .item.done .checkbox { background: var(--green); border-color: var(--green); color: var(--bg); }
+  .item.done .checkbox::after { content: "✓"; font-size: 12px; font-weight: 700; }
+  .item-body { flex: 1; min-width: 0; }
+  .item-title { font-size: 13.5px; font-weight: 500; margin-bottom: 4px; line-height: 1.4; }
+  .item-meta { font-size: 12px; color: var(--text-3); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .item-meta .sep { color: var(--text-4); }
+  .candidates { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .candidate-pill {
+    background: var(--surface-3); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px;
+    font-size: 11.5px; color: var(--text-2);
+    display: flex; align-items: center; gap: 6px;
+    cursor: pointer;
+  }
+  .candidate-pill:hover { background: var(--bg); color: var(--text); border-color: var(--border-strong); }
+  .candidate-pill .grade-mini { font-family: 'JetBrains Mono', monospace; font-weight: 600; font-size: 11px; }
+  .item-tag {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.1em;
+    padding: 3px 8px; border-radius: 5px; font-weight: 500;
+    white-space: nowrap; font-family: 'JetBrains Mono', monospace;
+  }
+  .tag-critical { background: rgba(239,68,68,0.10); color: var(--red); }
+  .tag-warning { background: rgba(251,191,36,0.10); color: var(--amber); }
+  .tag-info { background: rgba(96,165,250,0.10); color: var(--blue); }
+  .tag-forecast { background: rgba(96,165,250,0.10); color: var(--blue); }
+  .tag-rhythm { background: rgba(74,222,128,0.10); color: var(--green); }
+  .tag-personal { background: rgba(167,139,250,0.10); color: var(--violet); }
+  .tag-spotlight { background: rgba(253,224,71,0.10); color: var(--yellow); }
+  .item-right { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+
+  .add-reminder {
+    background: var(--surface);
+    border: 1px dashed var(--border-strong); border-radius: 10px;
+    padding: 10px 16px;
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 12px; cursor: text;
+  }
+  .add-reminder:focus-within { border-color: var(--violet); border-style: solid; }
+  .add-reminder .plus { color: var(--text-4); font-size: 14px; }
+  .add-reminder input {
+    background: none; border: none; color: var(--text);
+    font-size: 13.5px; font-family: inherit; width: 100%; outline: none;
+  }
+  .add-reminder input::placeholder { color: var(--text-4); }
+
+  .grade-A { background: rgba(74,222,128,0.15); color: var(--green); }
+  .grade-B { background: rgba(96,165,250,0.15); color: var(--blue); }
+  .grade-C { background: rgba(253,224,71,0.15); color: var(--yellow); }
+  .grade-D { background: rgba(251,146,60,0.15); color: var(--orange); }
+  .grade-F { background: rgba(239,68,68,0.18); color: var(--red); }
+
+  /* MODAL */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    z-index: 100; display: none;
+    align-items: flex-start; justify-content: center;
+    padding: 60px 20px 40px; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border-strong);
+    border-radius: 16px; width: 100%; max-width: 760px; padding: 28px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+    animation: modalIn 0.18s ease-out;
+  }
+  @keyframes modalIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .modal-title { font-size: 18px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.015em; }
+  .modal-subtitle { font-size: 13px; color: var(--text-3); }
+  .modal-close {
+    background: var(--surface-2); border: 1px solid var(--border);
+    color: var(--text-3);
+    width: 32px; height: 32px; border-radius: 8px;
+    cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-close:hover { background: var(--surface-3); color: var(--text); }
+  .modal-section { margin-bottom: 24px; }
+  .modal-section-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-4); font-weight: 500; margin-bottom: 10px; }
+  .candidate-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 14px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 6px; gap: 12px;
+  }
+  .candidate-row.clickable { cursor: pointer; }
+  .candidate-row.clickable:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .cand-left { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
+  .candidate-row .name { font-weight: 500; font-size: 13.5px; }
+  .candidate-row .info { font-size: 12px; color: var(--text-3); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 2px; }
+  .candidate-row .info .flag { background: rgba(239,68,68,0.10); color: var(--red); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
+  .candidate-row .info .strength { background: rgba(74,222,128,0.10); color: var(--green); padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 500; }
+  .candidate-row .days-tag { font-size: 11px; padding: 3px 8px; border-radius: 5px; font-weight: 500; white-space: nowrap; font-family: 'JetBrains Mono', monospace; }
+  .days-tag.ok { background: rgba(74,222,128,0.10); color: var(--green); }
+  .days-tag.warn { background: rgba(251,191,36,0.10); color: var(--amber); }
+  .days-tag.bad { background: rgba(239,68,68,0.10); color: var(--red); }
+  .grade-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 6px;
+    font-weight: 700; font-size: 12px; flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .trajectory { font-size: 13px; font-weight: 600; margin-left: 4px; font-family: 'JetBrains Mono', monospace; }
+  .trajectory.up { color: var(--green); }
+  .trajectory.down { color: var(--red); }
+  .trajectory.flat { color: var(--text-3); }
+  .cand-header { display: flex; gap: 16px; align-items: flex-start; padding: 18px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 20px; }
+  .cand-header .grade-badge { width: 48px; height: 48px; font-size: 22px; }
+  .ch-body { flex: 1; min-width: 0; }
+  .ch-name { font-size: 18px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.015em; }
+  .ch-stage { font-size: 12.5px; color: var(--text-3); margin-bottom: 10px; }
+  .ch-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ch-tag { font-size: 10.5px; padding: 3px 9px; border-radius: 5px; font-weight: 500; }
+  .ch-tag.strength { background: rgba(74,222,128,0.10); color: var(--green); }
+  .ch-tag.flag { background: rgba(239,68,68,0.10); color: var(--red); }
+  .timeline { position: relative; padding-left: 20px; }
+  .timeline::before { content: ""; position: absolute; left: 5px; top: 4px; bottom: 4px; width: 1px; background: var(--border-strong); }
+  .tl-entry { position: relative; padding-bottom: 16px; }
+  .tl-entry:last-child { padding-bottom: 0; }
+  .tl-entry::before { content: ""; position: absolute; left: -19px; top: 5px; width: 9px; height: 9px; border-radius: 50%; background: var(--surface); border: 2px solid var(--blue); }
+  .tl-entry.up::before { border-color: var(--green); }
+  .tl-entry.down::before { border-color: var(--red); }
+  .tl-date { font-size: 10.5px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.12em; margin-bottom: 3px; font-family: 'JetBrains Mono', monospace; }
+  .tl-title { font-size: 13px; font-weight: 500; }
+  .tl-meta { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .tl-grade { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 18px; border-radius: 4px; font-weight: 700; font-size: 10.5px; margin-left: 6px; font-family: 'JetBrains Mono', monospace; }
+  .notes-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .note { background: var(--surface-2); border: 1px solid var(--border); border-left: 2px solid var(--violet); border-radius: 8px; padding: 10px 14px; }
+  .note-date { font-size: 10.5px; color: var(--text-4); margin-bottom: 4px; font-family: 'JetBrains Mono', monospace; }
+  .note-text { font-size: 13px; }
+  .note-input-wrap { display: flex; gap: 8px; }
+  .note-input { flex: 1; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 10px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; resize: none; }
+  .note-input:focus { border-color: var(--violet); }
+  .note-save { background: var(--text); color: var(--bg); border: none; padding: 0 18px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .note-save:hover { opacity: 0.85; }
+
+  .dept-pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-bottom: 12px; }
+  .pipeline-stage { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; text-align: center; }
+  .pipeline-stage .num { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+  .pipeline-stage .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-3); margin-top: 4px; font-weight: 500; }
+  .grade-dist { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .gd { background: var(--surface-2); border-radius: 8px; padding: 12px 8px; text-align: center; border: 1px solid var(--border); }
+  .gd-letter { display: inline-flex; width: 22px; height: 22px; border-radius: 5px; align-items: center; justify-content: center; font-weight: 700; font-size: 11px; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace; }
+  .gd-count { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+
+  /* SETTINGS */
+  .settings-grid { display: grid; grid-template-columns: 220px 1fr; gap: 32px; }
+  .settings-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: 100px; align-self: start; }
+  .settings-nav-item { padding: 9px 14px; font-size: 13px; color: var(--text-3); border-radius: 8px; cursor: pointer; transition: all 0.12s; }
+  .settings-nav-item:hover { background: var(--surface); color: var(--text); }
+  .settings-nav-item.active { background: var(--surface-2); color: var(--text); }
+  .settings-content { display: flex; flex-direction: column; gap: 14px; }
+  .settings-section { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px 26px; }
+  .settings-section h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.005em; }
+  .ss-desc { font-size: 12.5px; color: var(--text-3); margin-bottom: 20px; }
+  .field-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-top: 1px solid var(--border); gap: 16px; }
+  .field-row:first-of-type { border-top: none; padding-top: 0; }
+  .field-label { font-size: 13px; font-weight: 500; }
+  .field-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+  .field-control { display: flex; align-items: center; gap: 8px; }
+  .input { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; width: 200px; }
+  .input:focus { border-color: var(--border-strong); background: var(--surface-3); }
+  .input.wide { width: 280px; }
+  .input.num { width: 70px; text-align: center; font-family: 'JetBrains Mono', monospace; }
+  .btn { background: var(--text); color: var(--bg); border: none; padding: 8px 16px; border-radius: 8px; font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; }
+  .btn:hover { opacity: 0.85; }
+  .btn.ghost { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .btn.danger { background: var(--red); color: white; }
+  .toggle { width: 38px; height: 22px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 11px; position: relative; cursor: pointer; transition: all 0.15s; }
+  .toggle::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; background: var(--text-2); border-radius: 50%; transition: all 0.15s; }
+  .toggle.on { background: var(--green); border-color: var(--green); }
+  .toggle.on::after { left: 18px; background: white; }
+  .select { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); padding: 8px 30px 8px 12px; border-radius: 8px; font-size: 13px; font-family: inherit; outline: none; cursor: pointer; -webkit-appearance: none; appearance: none; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236a6a70' stroke-width='2'><polyline points='6 9 12 15 18 9'/></svg>"); background-repeat: no-repeat; background-position: right 10px center; }
+
+  /* DEPARTMENT DETAIL */
+  .dept-page-head { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+  .dept-page-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 6px; }
+  .dept-page-sub { font-size: 13px; color: var(--text-3); }
+  .dept-kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
+  .kpi-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; }
+  .kpi-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-3); margin-bottom: 8px; font-weight: 500; }
+  .kpi-value { font-size: 28px; font-weight: 700; letter-spacing: -0.025em; }
+  .kpi-meta { font-size: 11.5px; color: var(--text-3); margin-top: 4px; }
+
+  /* ========== PIPELINE PAGE ========== */
+  .pipeline-board {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(180px, 1fr));
+    gap: 10px;
+    overflow-x: auto;
+    padding-bottom: 20px;
+  }
+  .pipeline-col {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 14px;
+    min-height: 400px;
+    display: flex; flex-direction: column;
+  }
+  .pipeline-col-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .pipeline-col-name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-3); font-weight: 600; }
+  .pipeline-col-count {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-2); background: var(--surface-3);
+    padding: 2px 7px; border-radius: 10px;
+  }
+  .pipeline-cards { display: flex; flex-direction: column; gap: 8px; }
+  .pipeline-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+    cursor: pointer; transition: all 0.12s;
+  }
+  .pipeline-card:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .pc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .pc-name { font-size: 12.5px; font-weight: 500; flex: 1; min-width: 0; }
+  .pc-grade {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700;
+    font-family: 'JetBrains Mono', monospace; flex-shrink: 0;
+  }
+  .pc-meta { font-size: 11px; color: var(--text-3); display: flex; gap: 6px; align-items: center; }
+  .pc-region { padding: 1px 5px; border-radius: 3px; background: var(--surface-3); font-size: 10px; }
+  .pc-days {
+    font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    margin-left: auto;
+  }
+  .pc-days.ok { color: var(--green); }
+  .pc-days.warn { color: var(--amber); }
+  .pc-days.bad { color: var(--red); }
+  .pipeline-region-filter {
+    display: flex; gap: 6px; margin-bottom: 16px;
+  }
+  .region-chip {
+    padding: 6px 12px; border-radius: 7px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    font-size: 12px; cursor: pointer; transition: all 0.12s;
+    color: var(--text-2);
+  }
+  .region-chip:hover { background: var(--surface-3); color: var(--text); }
+  .region-chip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+  /* ========== CANDIDATES PAGE (TABLE) ========== */
+  .cand-toolbar {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 16px; flex-wrap: wrap;
+  }
+  .cand-table-wrap {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .cand-table { width: 100%; border-collapse: collapse; }
+  .cand-table thead th {
+    background: var(--surface-2);
+    padding: 12px 16px; text-align: left;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--text-3); font-weight: 500;
+    border-bottom: 1px solid var(--border);
+  }
+  .cand-table tbody td {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .cand-table tbody tr { cursor: pointer; transition: background 0.1s; }
+  .cand-table tbody tr:hover { background: var(--surface-2); }
+  .cand-table tbody tr:last-child td { border-bottom: none; }
+  .cand-grade-td {
+    display: inline-flex; width: 24px; height: 24px; border-radius: 5px;
+    align-items: center; justify-content: center;
+    font-weight: 700; font-size: 11px; font-family: 'JetBrains Mono', monospace;
+  }
+  .cand-flag-row { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cand-mini-flag {
+    font-size: 10px; padding: 2px 6px; border-radius: 3px; font-weight: 500;
+  }
+
+  /* ========== CALENDAR PAGE ========== */
+  .cal-toolbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  .cal-month {
+    font-size: 22px; font-weight: 700; letter-spacing: -0.015em;
+  }
+  .cal-nav { display: flex; gap: 6px; }
+  .cal-nav-btn {
+    width: 32px; height: 32px;
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; color: var(--text-2);
+  }
+  .cal-nav-btn:hover { background: var(--surface-3); color: var(--text); }
+  .cal-nav-btn svg { width: 14px; height: 14px; }
+  .cal-today {
+    padding: 7px 14px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 8px; font-size: 12px; cursor: pointer; color: var(--text-2);
+  }
+  .cal-today:hover { background: var(--surface-3); color: var(--text); }
+  .cal-grid {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; overflow: hidden;
+  }
+  .cal-weekdays {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-weekday {
+    padding: 10px 12px;
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--text-3); font-weight: 500;
+  }
+  .cal-days {
+    display: grid; grid-template-columns: repeat(7, 1fr);
+    grid-auto-rows: minmax(110px, 1fr);
+  }
+  .cal-day {
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 10px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .cal-day:hover { background: var(--surface-2); }
+  .cal-day:nth-child(7n) { border-right: none; }
+  .cal-day.other-month { color: var(--text-4); background: rgba(0,0,0,0.2); }
+  .cal-day.other-month:hover { background: rgba(0,0,0,0.3); }
+  .cal-day-num {
+    font-size: 12.5px; font-weight: 500;
+    margin-bottom: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px;
+    border-radius: 50%;
+  }
+  .cal-day.today .cal-day-num {
+    background: var(--text); color: var(--bg); font-weight: 700;
+  }
+  .cal-events { display: flex; flex-direction: column; gap: 3px; }
+  .cal-event {
+    font-size: 10.5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: var(--surface-3);
+    border-left: 2px solid var(--blue);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text-2);
+  }
+  .cal-event.green { border-left-color: var(--green); }
+  .cal-event.red { border-left-color: var(--red); }
+  .cal-event.amber { border-left-color: var(--amber); }
+  .cal-event.violet { border-left-color: var(--violet); }
+  .cal-event-more { font-size: 10px; color: var(--text-3); padding: 1px 6px; }
+  .cal-legend { display: flex; gap: 14px; margin-top: 16px; flex-wrap: wrap; }
+  .cal-legend-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-3); }
+  .cal-legend-swatch { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* ========== MORNING BRIEFING ========== */
+  .briefing { max-width: 760px; margin: 0 auto; }
+  .briefing-head {
+    text-align: center;
+    padding: 24px 0 36px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 32px;
+  }
+  .briefing-eyebrow {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.32em;
+    color: var(--text-4); margin-bottom: 10px; font-weight: 500;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .briefing-date {
+    font-size: 32px; font-weight: 700; letter-spacing: -0.025em;
+    margin-bottom: 8px;
+  }
+  .briefing-summary {
+    font-size: 15px; color: var(--text-2); line-height: 1.6;
+    max-width: 520px; margin: 0 auto;
+  }
+  .briefing-section {
+    margin-bottom: 36px;
+  }
+  .briefing-section-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.18em;
+    color: var(--text-3); font-weight: 500;
+    margin-bottom: 16px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .briefing-section-title::before {
+    content: ""; width: 24px; height: 1px; background: var(--text-3);
+  }
+  .briefing-numbers {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+    margin-bottom: 20px;
+  }
+  .briefing-num {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px;
+    text-align: center;
+  }
+  .briefing-num-value { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; margin-bottom: 4px; }
+  .briefing-num-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-3); font-weight: 500; }
+
+  .briefing-list { display: flex; flex-direction: column; gap: 10px; }
+  .briefing-item {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 18px;
+    display: flex; gap: 14px;
+    border-left: 2px solid var(--text-4);
+  }
+  .briefing-item.critical { border-left-color: var(--red); }
+  .briefing-item.warning { border-left-color: var(--amber); }
+  .briefing-item.good { border-left-color: var(--green); }
+  .briefing-item.spotlight { border-left-color: var(--yellow); }
+  .briefing-item-num {
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+    color: var(--text-4); width: 18px; flex-shrink: 0; padding-top: 1px;
+  }
+  .briefing-item-body { flex: 1; min-width: 0; }
+  .briefing-item-title { font-size: 14px; font-weight: 500; margin-bottom: 3px; line-height: 1.4; }
+  .briefing-item-meta { font-size: 12px; color: var(--text-3); }
+  .briefing-quote {
+    text-align: center;
+    padding: 32px 24px;
+    border-top: 1px solid var(--border);
+    margin-top: 36px;
+    color: var(--text-3);
+    font-size: 13px;
+    font-style: italic;
+    line-height: 1.6;
+  }
+
+  /* PLACEHOLDER */
+  .placeholder { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 80px 40px; text-align: center; }
+  .placeholder h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.015em; margin-bottom: 8px; }
+  .placeholder p { font-size: 13px; color: var(--text-3); max-width: 360px; margin: 0 auto; line-height: 1.6; }
+  .placeholder .pl-note { font-size: 11px; color: var(--text-4); text-transform: uppercase; letter-spacing: 0.16em; margin-top: 18px; font-family: 'JetBrains Mono', monospace; }
+
+  @media (max-width: 1180px) {
+    .hero-row, .dept-row, .dept-kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .settings-grid { grid-template-columns: 1fr; }
+    .settings-nav { flex-direction: row; flex-wrap: wrap; position: static; }
+    .briefing-numbers { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 860px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .content { padding: 20px 16px 60px; }
+    .topbar { padding: 16px; }
+    .search-wrap { width: 160px; }
+    .pipeline-board { grid-template-columns: repeat(7, 200px); }
+  }
+  @media (max-width: 560px) {
+    .hero-row, .dept-row, .dept-kpi-row { grid-template-columns: 1fr; }
+    .briefing-numbers { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-name">WAR ROOM</div>
+      <div class="brand-divider"></div>
+    </div>
+    <div class="nav-group">
+      <div class="nav-item active" data-route="dashboard" onclick="navigate('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        <span>Dashboard</span>
+      </div>
+      <div class="nav-item" data-route="briefing" onclick="navigate('briefing')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        <span>Morning briefing</span>
+      </div>
+      <div class="nav-item" data-route="pipeline" onclick="navigate('pipeline')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+        <span>Pipeline</span>
+      </div>
+      <div class="nav-item" data-route="candidates" onclick="navigate('candidates')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span>Candidates</span>
+      </div>
+      <div class="nav-item" data-route="calendar" onclick="navigate('calendar')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>
+        <span>Calendar</span>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Departments</div>
+      <div class="nav-item" data-route="dept-ph" onclick="navigate('dept-ph')"><span style="font-size:14px;">🇵🇭</span><span>Philippines</span><span class="nav-badge">173</span></div>
+      <div class="nav-item" data-route="dept-eu" onclick="navigate('dept-eu')"><span style="font-size:14px;">🇪🇺</span><span>Europe</span><span class="nav-badge">33</span></div>
+      <div class="nav-item" data-route="dept-sa" onclick="navigate('dept-sa')"><span style="font-size:14px;">🇧🇷</span><span>South America</span><span class="nav-badge">29</span></div>
+      <div class="nav-item" data-route="dept-uk" onclick="navigate('dept-uk')"><span style="font-size:14px;">🇬🇧</span><span>United Kingdom</span><span class="nav-badge">9</span></div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-group-label">Insights</div>
+      <div class="nav-item" data-route="top-performers" onclick="navigate('top-performers')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        <span>Top performers</span>
+      </div>
+      <div class="nav-item" data-route="at-risk" onclick="navigate('at-risk')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>At risk</span>
+      </div>
+      <div class="nav-item" data-route="activity" onclick="navigate('activity')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        <span>Activity log</span>
+      </div>
+    </div>
+
+    <div class="nav-group">
+      <div class="nav-item" data-route="settings" onclick="navigate('settings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span>Settings</span>
+      </div>
+    </div>
+
+    <div class="sidebar-user">
+      <div class="avatar">N</div>
+      <div><div class="u-name">Operator</div><div class="u-role">Founder</div></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="page-title">Dashboard</div>
+      <div class="topbar-actions">
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input id="search-input" class="search-input" type="text" placeholder="Search candidates…" autocomplete="off" />
+          <div class="search-results" id="search-results"></div>
+        </div>
+        <div class="icon-btn" title="Synced 2 min ago">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          <div class="badge-dot"></div>
+        </div>
+      </div>
+    </div>
+    <div class="content" id="content"></div>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+  <div class="modal" id="modal">
+    <div class="modal-head">
+      <div><div class="modal-title" id="modal-title">Title</div><div class="modal-subtitle" id="modal-subtitle">Subtitle</div></div>
+      <div class="modal-close" onclick="closeModal()">✕</div>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+const CANDIDATES = {
+  'maria-l': { name: 'Maria L.', region: 'EU', stage: 'Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3, stageKey: 'training',
+    tags: { strengths: ['Fast learner', 'Personality'], flags: [] },
+    timeline: [
+      { date: 'May 13', title: 'Submitted typeform', type: 'flat' },
+      { date: 'May 15', title: 'Interview passed', type: 'up', grade: 'B' },
+      { date: 'May 18', title: 'Day 3 score 9/10', type: 'up', grade: 'A' }
+    ], notes: [] },
+  'ivan-p': { name: 'Ivan P.', region: 'EU', stage: 'Week 1 · Day 3', grade: 'D', trajectory: 'down', manager: 'Aleksandar', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: ['Slow start'] },
+    timeline: [{ date: 'May 18', title: 'Day 3 score 4/10', type: 'down', grade: 'D' }], notes: [] },
+  'sofia-m': { name: 'Sofia M.', region: 'EU', stage: 'Week 1 Exp · Day 3', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3, stageKey: 'training',
+    tags: { strengths: ['Experienced 3yr'], flags: [] }, timeline: [], notes: [] },
+  'marco-g': { name: 'Marco G.', region: 'EU', stage: 'Week 1 Exp · Day 3', grade: 'B', trajectory: 'up', manager: 'Aleksandar', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'elena-v': { name: 'Elena V.', region: 'EU', stage: 'Week 1 · Day 3', grade: 'B', trajectory: 'flat', manager: 'Aleksandar', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'anna-g': { name: 'Anna G.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3, stageKey: 'training',
+    tags: { strengths: ['Grammar', 'Hustle'], flags: [] }, timeline: [], notes: [] },
+  'bea-m': { name: 'Bea M.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3, stageKey: 'training',
+    tags: { strengths: ['Personality'], flags: [] }, timeline: [], notes: [] },
+  'jenny-s': { name: 'Jenny S.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', grade: 'B', trajectory: 'up', manager: 'Mark', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'cassie-t': { name: 'Cassie T.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', grade: 'C', trajectory: 'flat', manager: 'Mark', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: ['Inconsistent'] }, timeline: [], notes: [] },
+  'rose-d': { name: 'Rose D.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', grade: 'C', trajectory: 'down', manager: 'Mark', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'maja-p': { name: 'Maja P.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', grade: 'F', trajectory: 'down', manager: 'Mark', days: 3, stageKey: 'training',
+    tags: { strengths: [], flags: ['Late replies', 'Low engagement'] },
+    timeline: [{ date: 'May 18', title: 'Day 3 score 3/10', type: 'down', grade: 'F' }], notes: [] },
+  'james-t': { name: 'James T.', region: 'UK', stage: 'Week 1 · Day 5', grade: 'D', trajectory: 'down', manager: 'Noah', days: 5, stageKey: 'training',
+    tags: { strengths: [], flags: ['Tech issues'] }, timeline: [], notes: [] },
+  'jenna-k': { name: 'Jenna K.', region: 'PH', stage: 'Interview today 1pm', grade: 'A', trajectory: 'flat', manager: 'Apple', days: 0, stageKey: 'scheduled',
+    tags: { strengths: ['Experienced 2yr'], flags: [] }, timeline: [], notes: [] },
+  'maria-s': { name: 'Maria S.', region: 'PH', stage: 'Interview today 10am', grade: null, trajectory: null, manager: 'Apple', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'rica-p': { name: 'Rica P.', region: 'PH', stage: 'Interview today 4pm', grade: null, trajectory: null, manager: 'Apple', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'ana-f': { name: 'Ana F.', region: 'PH', stage: 'Interview today 11am', grade: null, trajectory: null, manager: 'Darla', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'carlos-m': { name: 'Carlos M.', region: 'SA', stage: 'Pending Interview · 6d', grade: 'B', trajectory: 'flat', manager: 'Sebastien', days: 6, stageKey: 'pending',
+    tags: { strengths: ['Experienced'], flags: [] }, timeline: [], notes: [] },
+  'lucia-r': { name: 'Lucia R.', region: 'SA', stage: 'Pending Interview · 5d', grade: 'C', trajectory: 'flat', manager: 'Sebastien', days: 5, stageKey: 'pending',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'diego-f': { name: 'Diego F.', region: 'SA', stage: 'Pending Interview · 4d', grade: 'D', trajectory: 'flat', manager: 'Sebastien', days: 4, stageKey: 'pending',
+    tags: { strengths: [], flags: ['Ghosting'] }, timeline: [], notes: [] },
+  'fsf': { name: 'FSF', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5, stageKey: 'typeform',
+    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
+  'noah-whall': { name: 'Noah Whall', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5, stageKey: 'typeform',
+    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
+  'noah': { name: 'NOAH', region: 'UK', stage: 'Typeform · 6d', grade: null, trajectory: 'down', manager: 'Noah', days: 6, stageKey: 'typeform',
+    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
+  'john-k': { name: 'John K.', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5, stageKey: 'typeform',
+    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
+  'lena-w': { name: 'Lena W.', region: 'EU', stage: 'Interview today 2pm CET', grade: null, trajectory: null, manager: 'Aleksandar', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
+  'pablo-g': { name: 'Pablo G.', region: 'SA', stage: 'Interview today 3pm BRT', grade: 'C', trajectory: 'down', manager: 'Sebastien', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: ['Late to call'] }, timeline: [], notes: [] },
+  'sarah-h': { name: 'Sarah H.', region: 'UK', stage: 'Interview today 4pm GMT', grade: null, trajectory: null, manager: 'Noah', days: 0, stageKey: 'scheduled',
+    tags: { strengths: [], flags: [] }, timeline: [], notes: [] }
+};
+const SESSION_NOTES = {};
+
+const PAGE_TITLES = {
+  'dashboard': 'Dashboard', 'briefing': 'Morning briefing',
+  'pipeline': 'Pipeline', 'candidates': 'Candidates', 'calendar': 'Calendar',
+  'dept-ph': 'Philippines', 'dept-eu': 'Europe', 'dept-sa': 'South America', 'dept-uk': 'United Kingdom',
+  'top-performers': 'Top performers', 'at-risk': 'At risk', 'activity': 'Activity log',
+  'settings': 'Settings'
+};
+
+function navigate(route) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.route === route));
+  document.getElementById('page-title').textContent = PAGE_TITLES[route] || 'War Room';
+  const container = document.getElementById('content');
+  container.innerHTML = PAGES[route] ? PAGES[route]() : PAGES['placeholder'](route);
+  window.scrollTo(0, 0);
+  if (route === 'dashboard') initDashboardListeners();
+  if (route === 'calendar') initCalendar();
+}
+
+const PAGES = {};
+
+PAGES['placeholder'] = (route) => `<div class="placeholder"><h2>${PAGE_TITLES[route] || 'Coming soon'}</h2><p>This section is part of the real build.</p><div class="pl-note">PLACEHOLDER</div></div>`;
+
+PAGES['dashboard'] = () => `
+  <div class="hero-row">
+    <div class="hero-card" onclick="openModal('summary-pipeline')"><div class="hero-head"><div class="hero-label">In pipeline</div><div class="hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div></div><div class="hero-value">487</div><div class="hero-meta"><span>across 4 regions</span><span class="delta">↑ 12</span></div><div class="hero-progress"><div class="hero-progress-fill hp-green" style="width:78%"></div></div></div>
+    <div class="hero-card" onclick="openModal('summary-interviews')"><div class="hero-head"><div class="hero-label">Interviews</div><div class="hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div></div><div class="hero-value">34</div><div class="hero-meta"><span>8 today</span><span style="color:var(--text-3)">+3 stuck</span></div><div class="hero-progress"><div class="hero-progress-fill hp-yellow" style="width:64%"></div></div></div>
+    <div class="hero-card" onclick="openModal('summary-training')"><div class="hero-head"><div class="hero-label">In training</div><div class="hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/></svg></div></div><div class="hero-value">68</div><div class="hero-meta"><span>6 lanes</span><span class="delta">2 ending Fri</span></div><div class="hero-progress"><div class="hero-progress-fill hp-green" style="width:85%"></div></div></div>
+    <div class="hero-card" onclick="openModal('summary-active')"><div class="hero-head"><div class="hero-label">Active hires</div><div class="hero-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div></div><div class="hero-value">437</div><div class="hero-meta"><span>+3 this week</span><span class="delta">↑ 0.7%</span></div><div class="hero-progress"><div class="hero-progress-fill hp-green" style="width:92%"></div></div></div>
+  </div>
+
+  <div class="dept-row">
+    <div class="dept-card" onclick="navigate('dept-ph')"><div class="dept-head"><div><div class="dept-name">🇵🇭 Philippines</div><div class="dept-manager">Apple · Darla · Pauline</div></div></div><div class="dept-pct" style="color:var(--amber)">38%</div><div class="dept-pct-sub">conversion rate</div><div class="dept-bar"><div class="dept-bar-fill" style="width:38%;background:var(--amber)"></div></div><div class="dept-stats"><div class="dept-stat"><span class="dept-stat-label">Avg grade</span><span class="dept-stat-value">B-</span></div><div class="dept-stat"><span class="dept-stat-label">Stars</span><span class="dept-stat-value up">6</span></div><div class="dept-stat"><span class="dept-stat-label">At risk</span><span class="dept-stat-value down">4</span></div><div class="dept-stat"><span class="dept-stat-label">Alerts</span><span class="dept-stat-value">2</span></div></div></div>
+    <div class="dept-card" onclick="navigate('dept-eu')"><div class="dept-head"><div><div class="dept-name">🇪🇺 Europe</div><div class="dept-manager">Aleksandar</div></div></div><div class="dept-pct" style="color:var(--green)">41%</div><div class="dept-pct-sub">conversion rate</div><div class="dept-bar"><div class="dept-bar-fill" style="width:41%;background:var(--green)"></div></div><div class="dept-stats"><div class="dept-stat"><span class="dept-stat-label">Avg grade</span><span class="dept-stat-value up">B+</span></div><div class="dept-stat"><span class="dept-stat-label">Stars</span><span class="dept-stat-value up">5</span></div><div class="dept-stat"><span class="dept-stat-label">At risk</span><span class="dept-stat-value">1</span></div><div class="dept-stat"><span class="dept-stat-label">Alerts</span><span class="dept-stat-value">1</span></div></div></div>
+    <div class="dept-card" onclick="navigate('dept-sa')"><div class="dept-head"><div><div class="dept-name">🇧🇷 South America</div><div class="dept-manager">Sebastien</div></div></div><div class="dept-pct" style="color:var(--amber)">35%</div><div class="dept-pct-sub">conversion rate</div><div class="dept-bar"><div class="dept-bar-fill" style="width:35%;background:var(--amber)"></div></div><div class="dept-stats"><div class="dept-stat"><span class="dept-stat-label">Avg grade</span><span class="dept-stat-value">C+</span></div><div class="dept-stat"><span class="dept-stat-label">Stars</span><span class="dept-stat-value">2</span></div><div class="dept-stat"><span class="dept-stat-label">At risk</span><span class="dept-stat-value">2</span></div><div class="dept-stat"><span class="dept-stat-label">Alerts</span><span class="dept-stat-value down">1</span></div></div></div>
+    <div class="dept-card" onclick="navigate('dept-uk')"><div class="dept-head"><div><div class="dept-name">🇬🇧 United Kingdom</div><div class="dept-manager">Noah</div></div></div><div class="dept-pct" style="color:var(--red)">22%</div><div class="dept-pct-sub">conversion rate</div><div class="dept-bar"><div class="dept-bar-fill" style="width:22%;background:var(--red)"></div></div><div class="dept-stats"><div class="dept-stat"><span class="dept-stat-label">Avg grade</span><span class="dept-stat-value down">C</span></div><div class="dept-stat"><span class="dept-stat-label">Stars</span><span class="dept-stat-value">1</span></div><div class="dept-stat"><span class="dept-stat-label">At risk</span><span class="dept-stat-value down">2</span></div><div class="dept-stat"><span class="dept-stat-label">Alerts</span><span class="dept-stat-value down">2</span></div></div></div>
+  </div>
+
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-head"><div class="panel-title"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><span id="view-heading">TODAY · WHAT NEEDS YOU</span></div><div class="panel-link" id="view-count">13 items</div></div>
+      <div class="time-toggle">
+        <button class="time-btn active" data-view="today" onclick="switchView('today')">Today</button>
+        <button class="time-btn" data-view="week" onclick="switchView('week')">This week</button>
+        <button class="time-btn" data-view="next" onclick="switchView('next')">Next week</button>
+      </div>
+      <div class="add-reminder" onclick="document.getElementById('reminder-input').focus()"><div class="plus">+</div><input id="reminder-input" type="text" placeholder="Add a reminder…" /></div>
+
+      <div class="view-content" data-view="today">
+        <div class="group-label">Critical</div>
+        <div class="items">
+          <div class="item critical" onclick="openModal('item-noah-typeforms', event)"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">Follow up with Noah — 4 typeforms untouched for 5+ days</div><div class="item-meta"><span>UK</span><span class="sep">·</span><span>Threshold is 48hr</span></div><div class="candidates"><div class="candidate-pill" onclick="openCandidate('fsf', event)">FSF · <span class="grade-mini" style="color:var(--red)">5d</span></div><div class="candidate-pill" onclick="openCandidate('noah-whall', event)">Noah Whall · <span class="grade-mini" style="color:var(--red)">5d</span></div><div class="candidate-pill" onclick="openCandidate('noah', event)">NOAH · <span class="grade-mini" style="color:var(--red)">6d</span></div></div></div><div class="item-right"><span class="item-tag tag-critical">Critical</span></div></div>
+          <div class="item critical" onclick="openModal('item-sebastien-interviews', event)"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">Sebastien — 3 candidates in Pending Interview &gt; 4 days</div><div class="item-meta"><span>SA</span><span class="sep">·</span><span>Stage expected 2 days</span></div><div class="candidates"><div class="candidate-pill" onclick="openCandidate('carlos-m', event)">Carlos M. · <span class="grade-mini" style="color:var(--blue)">B</span></div><div class="candidate-pill" onclick="openCandidate('lucia-r', event)">Lucia R. · <span class="grade-mini" style="color:var(--yellow)">C</span></div><div class="candidate-pill" onclick="openCandidate('diego-f', event)">Diego F. · <span class="grade-mini" style="color:var(--orange)">D</span></div></div></div><div class="item-right"><span class="item-tag tag-critical">Critical</span></div></div>
+          <div class="item critical"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">3 trainees graded D or below trending down — likely fails</div><div class="item-meta"><span>PH Lane B · EU W1 · UK W1</span></div><div class="candidates"><div class="candidate-pill" onclick="openCandidate('maja-p', event)">Maja P. · <span class="grade-mini" style="color:var(--red)">F ↓</span></div><div class="candidate-pill" onclick="openCandidate('ivan-p', event)">Ivan P. · <span class="grade-mini" style="color:var(--orange)">D ↓</span></div><div class="candidate-pill" onclick="openCandidate('james-t', event)">James T. · <span class="grade-mini" style="color:var(--orange)">D ↓</span></div></div></div><div class="item-right"><span class="item-tag tag-critical">Critical</span></div></div>
+        </div>
+
+        <div class="group-label">Spotlight</div>
+        <div class="items">
+          <div class="item spotlight"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">5 standout candidates this week — consider fast-track</div><div class="item-meta"><span>A-graded · trending up</span></div><div class="candidates"><div class="candidate-pill" onclick="openCandidate('maria-l', event)">Maria L. · <span class="grade-mini" style="color:var(--green)">A ↑</span></div><div class="candidate-pill" onclick="openCandidate('anna-g', event)">Anna G. · <span class="grade-mini" style="color:var(--green)">A ↑</span></div><div class="candidate-pill" onclick="openCandidate('sofia-m', event)">Sofia M. · <span class="grade-mini" style="color:var(--green)">A ↑</span></div><div class="candidate-pill" onclick="openCandidate('bea-m', event)">Bea M. · <span class="grade-mini" style="color:var(--green)">A ↑</span></div></div></div><div class="item-right"><span class="item-tag tag-spotlight">Spotlight</span></div></div>
+        </div>
+
+        <div class="group-label">Today's check-ins</div>
+        <div class="items">
+          <div class="item rhythm"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">Apple has 3 interviews today — follow up tonight</div><div class="item-meta"><span>PH Recruiting</span><span class="sep">·</span><span>10am, 1pm, 4pm Manila</span></div></div><div class="item-right"><span class="item-tag tag-rhythm">Check in</span></div></div>
+          <div class="item rhythm"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">Aleksandar — Day 3 of training, Ivan slipping</div><div class="item-meta"><span>EU</span><span class="sep">·</span><span>Week 1</span></div></div><div class="item-right"><span class="item-tag tag-rhythm">Check in</span></div></div>
+        </div>
+
+        <div class="group-label">Watch list</div>
+        <div class="items">
+          <div class="item warning"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">EU typeform intake down 60% vs baseline</div><div class="item-meta"><span>Aleksandar</span><span class="sep">·</span><span>3 this week · usually 7–8</span></div></div><div class="item-right"><span class="item-tag tag-warning">Warning</span></div></div>
+          <div class="item warning"><div class="checkbox" onclick="toggleDone(this.parentElement, event)"></div><div class="item-body"><div class="item-title">Lane B avg grade C+ or lower for 3 batches</div><div class="item-meta"><span>PH Week 1</span></div></div><div class="item-right"><span class="item-tag tag-warning">Warning</span></div></div>
+        </div>
+
+        <div class="group-label">Your reminders</div>
+        <div class="items" id="personal-items">
+          <div class="item personal" onclick="toggleDone(this, event)"><div class="checkbox"></div><div class="item-body"><div class="item-title">Call accountant about Q2</div></div><div class="item-right"><span class="item-tag tag-personal">Personal</span></div></div>
+        </div>
+      </div>
+
+      <div class="view-content" data-view="week" style="display:none"><div class="group-label">Week summary</div><div class="items"><div class="item forecast"><div class="checkbox"></div><div class="item-body"><div class="item-title">This week · Mon May 18 → Sun May 24</div><div class="item-meta"><span>~8 expected to go Active</span><span class="sep">·</span><span>2 cohorts ending</span></div></div><div class="item-right"><span class="item-tag tag-forecast">Overview</span></div></div></div></div>
+
+      <div class="view-content" data-view="next" style="display:none"><div class="group-label">Next week summary</div><div class="items"><div class="item forecast"><div class="checkbox"></div><div class="item-body"><div class="item-title">Next week · Mon May 25 → Sun May 31</div><div class="item-meta"><span>2 new cohorts starting</span><span class="sep">·</span><span>~6 expected hires</span></div></div><div class="item-right"><span class="item-tag tag-forecast">Overview</span></div></div></div></div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">Top performers</div><div class="panel-link" onclick="navigate('top-performers')">View all →</div></div>
+        <div class="ranked-list">
+          <div class="ranked-row" onclick="openCandidate('maria-l')"><div class="ranked-num">1</div><div class="ranked-avatar">M</div><div class="ranked-body"><div class="ranked-name">Maria L.</div><div class="ranked-bar"><div class="ranked-bar-fill" style="width:92%;background:var(--green)"></div></div></div><div class="ranked-pct" style="color:var(--green)">A · ↑</div></div>
+          <div class="ranked-row" onclick="openCandidate('anna-g')"><div class="ranked-num">2</div><div class="ranked-avatar">A</div><div class="ranked-body"><div class="ranked-name">Anna G.</div><div class="ranked-bar"><div class="ranked-bar-fill" style="width:90%;background:var(--green)"></div></div></div><div class="ranked-pct" style="color:var(--green)">A · ↑</div></div>
+          <div class="ranked-row" onclick="openCandidate('sofia-m')"><div class="ranked-num">3</div><div class="ranked-avatar">S</div><div class="ranked-body"><div class="ranked-name">Sofia M.</div><div class="ranked-bar"><div class="ranked-bar-fill" style="width:88%;background:var(--green)"></div></div></div><div class="ranked-pct" style="color:var(--green)">A · ↑</div></div>
+          <div class="ranked-row" onclick="openCandidate('bea-m')"><div class="ranked-num">4</div><div class="ranked-avatar">B</div><div class="ranked-body"><div class="ranked-name">Bea M.</div><div class="ranked-bar"><div class="ranked-bar-fill" style="width:84%;background:var(--yellow)"></div></div></div><div class="ranked-pct" style="color:var(--green)">A · ↑</div></div>
+          <div class="ranked-row" onclick="openCandidate('jenna-k')"><div class="ranked-num">5</div><div class="ranked-avatar">J</div><div class="ranked-body"><div class="ranked-name">Jenna K.</div><div class="ranked-bar"><div class="ranked-bar-fill" style="width:80%;background:var(--yellow)"></div></div></div><div class="ranked-pct" style="color:var(--green)">A · →</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">Upcoming</div></div>
+        <div class="upcoming-list">
+          <div class="upcoming-row"><div class="upcoming-bar"></div><div class="upcoming-body"><div class="upcoming-title">Apple interviews · PH</div><div class="upcoming-meta">Today · 10am, 1pm, 4pm</div></div></div>
+          <div class="upcoming-row"><div class="upcoming-bar green"></div><div class="upcoming-body"><div class="upcoming-title">Weekly call · Aleksandar</div><div class="upcoming-meta">Today · 3pm</div></div></div>
+          <div class="upcoming-row"><div class="upcoming-bar red"></div><div class="upcoming-body"><div class="upcoming-title">PH Lane B Week 1 ends</div><div class="upcoming-meta">Fri May 22</div></div></div>
+          <div class="upcoming-row"><div class="upcoming-bar green"></div><div class="upcoming-body"><div class="upcoming-title">EU Week 1 ends</div><div class="upcoming-meta">Sun May 24</div></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">Source mix · PH share</div><div class="panel-link">Target 25%</div></div>
+        <div style="font-size:36px;font-weight:700;letter-spacing:-0.025em;color:var(--red);line-height:1;margin-bottom:6px">82%</div>
+        <div style="font-size:12px;color:var(--text-3);margin-bottom:12px">57 points above target</div>
+        <div class="hero-progress" style="height:6px"><div class="hero-progress-fill hp-red" style="width:82%"></div></div>
+      </div>
+    </div>
+  </div>
+`;
+
+/* ===== MORNING BRIEFING ===== */
+PAGES['briefing'] = () => {
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  return `
+    <div class="briefing">
+      <div class="briefing-head">
+        <div class="briefing-eyebrow">YOUR MORNING BRIEFING</div>
+        <div class="briefing-date">${dateStr}</div>
+        <div class="briefing-summary">Overnight: 3 new typeforms arrived, 2 candidates moved to active, 1 cohort approaches graduation. UK needs your attention today — Noah has been quiet.</div>
+      </div>
+
+      <div class="briefing-section">
+        <div class="briefing-section-title">The numbers</div>
+        <div class="briefing-numbers">
+          <div class="briefing-num"><div class="briefing-num-value">+3</div><div class="briefing-num-label">New overnight</div></div>
+          <div class="briefing-num"><div class="briefing-num-value">8</div><div class="briefing-num-label">Interviews today</div></div>
+          <div class="briefing-num"><div class="briefing-num-value" style="color:var(--red)">9</div><div class="briefing-num-label">At risk</div></div>
+          <div class="briefing-num"><div class="briefing-num-value" style="color:var(--green)">14</div><div class="briefing-num-label">Top performers</div></div>
+        </div>
+      </div>
+
+      <div class="briefing-section">
+        <div class="briefing-section-title">Worth your attention today</div>
+        <div class="briefing-list">
+          <div class="briefing-item critical"><div class="briefing-item-num">01</div><div class="briefing-item-body"><div class="briefing-item-title">Noah's UK board is silent — 4 candidates have been stuck for 5+ days</div><div class="briefing-item-meta">Threshold is 48hr · longest stuck is 6d · message him directly today</div></div></div>
+          <div class="briefing-item critical"><div class="briefing-item-num">02</div><div class="briefing-item-body"><div class="briefing-item-title">Sebastien has 3 candidates rotting in Pending Interview</div><div class="briefing-item-meta">Carlos M. (6d), Lucia R. (5d), Diego F. (4d) — Sebastien needs to schedule</div></div></div>
+          <div class="briefing-item warning"><div class="briefing-item-num">03</div><div class="briefing-item-body"><div class="briefing-item-title">Three trainees graded D or F are trending down toward failing this week</div><div class="briefing-item-meta">Maja P. (PH Lane B), Ivan P. (EU), James T. (UK) — decide who to invest in vs offboard</div></div></div>
+        </div>
+      </div>
+
+      <div class="briefing-section">
+        <div class="briefing-section-title">Wins to recognize</div>
+        <div class="briefing-list">
+          <div class="briefing-item spotlight"><div class="briefing-item-num">01</div><div class="briefing-item-body"><div class="briefing-item-title">Aleksandar's cohort is averaging 7.4 — strongest in 2 months</div><div class="briefing-item-meta">5 trainees, 4 expected to pass · tell him on today's 3pm call</div></div></div>
+          <div class="briefing-item good"><div class="briefing-item-num">02</div><div class="briefing-item-body"><div class="briefing-item-title">5 candidates trending toward fast-track status</div><div class="briefing-item-meta">Maria L., Anna G., Sofia M., Bea M., Jenna K. — all A-graded, trending up</div></div></div>
+        </div>
+      </div>
+
+      <div class="briefing-section">
+        <div class="briefing-section-title">This week ahead</div>
+        <div class="briefing-list">
+          <div class="briefing-item"><div class="briefing-item-num">→</div><div class="briefing-item-body"><div class="briefing-item-title">Friday: PH Lane B Week 1 graduation</div><div class="briefing-item-meta">6 trainees · 3 expected to pass based on current grades</div></div></div>
+          <div class="briefing-item"><div class="briefing-item-num">→</div><div class="briefing-item-body"><div class="briefing-item-title">Sunday: EU Week 1 cohort completes</div><div class="briefing-item-meta">5 trainees · 4 expected to pass · Aleksandar's strongest cohort yet</div></div></div>
+          <div class="briefing-item warning"><div class="briefing-item-num">→</div><div class="briefing-item-body"><div class="briefing-item-title">PH share is still at 82% — drifting from 25% target</div><div class="briefing-item-meta">EU needs ~4× current intake to shift the mix · push sourcing</div></div></div>
+        </div>
+      </div>
+
+      <div class="briefing-quote">Read this once. Then go open the dashboard.</div>
+    </div>
+  `;
+};
+
+/* ===== PIPELINE PAGE ===== */
+function pipelineCard(id) {
+  const c = CANDIDATES[id];
+  if (!c) return '';
+  const gradeHtml = c.grade ? `<div class="pc-grade grade-${c.grade}">${c.grade}</div>` : `<div class="pc-grade" style="background:var(--surface-3);color:var(--text-4)">—</div>`;
+  const daysClass = c.days >= 5 ? 'bad' : c.days >= 3 ? 'warn' : 'ok';
+  const daysText = c.days > 0 ? `${c.days}d` : '';
+  return `
+    <div class="pipeline-card" onclick="openCandidate('${id}')">
+      <div class="pc-head">
+        ${gradeHtml}
+        <div class="pc-name">${c.name}</div>
+      </div>
+      <div class="pc-meta">
+        <span class="pc-region">${c.region}</span>
+        <span>${c.manager}</span>
+        ${daysText ? `<span class="pc-days ${daysClass}">${daysText}</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+PAGES['pipeline'] = () => {
+  // Bucket candidates by stage
+  const stages = {
+    typeform: { label: 'Typeform', ids: [] },
+    passed: { label: 'Passed', ids: [] },
+    pending: { label: 'Pending', ids: [] },
+    scheduled: { label: 'Scheduled', ids: [] },
+    training: { label: 'Training', ids: [] },
+    standby: { label: 'Standby', ids: [] },
+    active: { label: 'Active', ids: [] }
+  };
+  Object.entries(CANDIDATES).forEach(([id, c]) => {
+    if (stages[c.stageKey]) stages[c.stageKey].ids.push(id);
+  });
+  // Mock counts for stages we don't have full data for
+  const stageCounts = { typeform: 127, passed: 32, pending: 16, scheduled: 8, training: 68, standby: 53, active: 437 };
+
+  return `
+    <div class="page-heading">
+      <h1>Pipeline</h1>
+      <div class="ph-sub">Every candidate across every region in motion. Click any card for full detail.</div>
+    </div>
+    <div class="pipeline-region-filter">
+      <div class="region-chip active" onclick="filterPipelineRegion(this, 'ALL')">All regions</div>
+      <div class="region-chip" onclick="filterPipelineRegion(this, 'PH')">🇵🇭 Philippines</div>
+      <div class="region-chip" onclick="filterPipelineRegion(this, 'EU')">🇪🇺 Europe</div>
+      <div class="region-chip" onclick="filterPipelineRegion(this, 'SA')">🇧🇷 South America</div>
+      <div class="region-chip" onclick="filterPipelineRegion(this, 'UK')">🇬🇧 United Kingdom</div>
+    </div>
+    <div class="pipeline-board" id="pipeline-board">
+      ${Object.entries(stages).map(([key, s]) => `
+        <div class="pipeline-col" data-stage="${key}">
+          <div class="pipeline-col-head">
+            <div class="pipeline-col-name">${s.label}</div>
+            <div class="pipeline-col-count">${stageCounts[key] || s.ids.length}</div>
+          </div>
+          <div class="pipeline-cards">
+            ${s.ids.map(id => pipelineCard(id)).join('')}
+            ${s.ids.length === 0 ? '<div style="color:var(--text-4);font-size:11px;padding:8px 0;font-style:italic;">No visible candidates</div>' : ''}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+};
+
+function filterPipelineRegion(el, region) {
+  document.querySelectorAll('.region-chip').forEach(c => c.classList.toggle('active', c === el));
+  document.querySelectorAll('.pipeline-card').forEach(card => {
+    if (region === 'ALL') {
+      card.style.display = '';
+    } else {
+      const cardRegion = card.querySelector('.pc-region').textContent;
+      card.style.display = cardRegion === region ? '' : 'none';
+    }
+  });
+}
+
+/* ===== CANDIDATES TABLE PAGE ===== */
+PAGES['candidates'] = () => {
+  const rows = Object.entries(CANDIDATES).map(([id, c]) => {
+    const gradeCell = c.grade ? `<div class="cand-grade-td grade-${c.grade}">${c.grade}</div>` : `<div class="cand-grade-td" style="background:var(--surface-3);color:var(--text-4)">—</div>`;
+    const trajIcon = c.trajectory === 'up' ? '↑' : c.trajectory === 'down' ? '↓' : c.trajectory === 'flat' ? '→' : '';
+    const trajColor = c.trajectory === 'up' ? 'var(--green)' : c.trajectory === 'down' ? 'var(--red)' : 'var(--text-3)';
+    const flagsHtml = c.tags.flags.map(f => `<span class="cand-mini-flag" style="background:rgba(239,68,68,0.10);color:var(--red);">${f}</span>`).join('');
+    const strengthsHtml = c.tags.strengths.map(s => `<span class="cand-mini-flag" style="background:rgba(74,222,128,0.10);color:var(--green);">${s}</span>`).join('');
+    return `
+      <tr onclick="openCandidate('${id}')" data-region="${c.region}" data-grade="${c.grade || ''}" data-name="${c.name.toLowerCase()}">
+        <td>${gradeCell}</td>
+        <td><div style="font-weight:500">${c.name}</div></td>
+        <td><span class="pc-region">${c.region}</span></td>
+        <td>${c.stage}</td>
+        <td>${c.manager}</td>
+        <td style="color:${trajColor};font-weight:600;font-family:'JetBrains Mono',monospace;">${trajIcon || '—'}</td>
+        <td><div class="cand-flag-row">${strengthsHtml}${flagsHtml}${!strengthsHtml && !flagsHtml ? '<span style="color:var(--text-4);font-size:11px;">—</span>' : ''}</div></td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="page-heading">
+      <h1>Candidates</h1>
+      <div class="ph-sub">${Object.keys(CANDIDATES).length} candidates currently visible in the pipeline. Click any row for full detail.</div>
+    </div>
+    <div class="cand-toolbar">
+      <input class="input wide" type="text" placeholder="Filter by name…" oninput="filterCandTable(this.value)" />
+      <select class="select" onchange="filterCandRegion(this.value)">
+        <option value="">All regions</option>
+        <option value="PH">🇵🇭 Philippines</option>
+        <option value="EU">🇪🇺 Europe</option>
+        <option value="SA">🇧🇷 South America</option>
+        <option value="UK">🇬🇧 United Kingdom</option>
+      </select>
+      <select class="select" onchange="filterCandGrade(this.value)">
+        <option value="">All grades</option>
+        <option value="A">A only</option>
+        <option value="B">B only</option>
+        <option value="C">C only</option>
+        <option value="D">D only</option>
+        <option value="F">F only</option>
+      </select>
+    </div>
+    <div class="cand-table-wrap">
+      <table class="cand-table">
+        <thead><tr><th>Grade</th><th>Name</th><th>Region</th><th>Stage</th><th>Manager</th><th>Trend</th><th>Tags</th></tr></thead>
+        <tbody id="cand-tbody">${rows}</tbody>
+      </table>
+    </div>
+  `;
+};
+
+let candFilters = { name: '', region: '', grade: '' };
+function applyCandFilters() {
+  document.querySelectorAll('#cand-tbody tr').forEach(tr => {
+    const matchName = !candFilters.name || tr.dataset.name.includes(candFilters.name.toLowerCase());
+    const matchRegion = !candFilters.region || tr.dataset.region === candFilters.region;
+    const matchGrade = !candFilters.grade || tr.dataset.grade === candFilters.grade;
+    tr.style.display = (matchName && matchRegion && matchGrade) ? '' : 'none';
+  });
+}
+function filterCandTable(v) { candFilters.name = v; applyCandFilters(); }
+function filterCandRegion(v) { candFilters.region = v; applyCandFilters(); }
+function filterCandGrade(v) { candFilters.grade = v; applyCandFilters(); }
+
+/* ===== CALENDAR PAGE ===== */
+let calCursor = new Date();
+calCursor.setDate(1);
+
+const CAL_EVENTS = {
+  // Today
+  '2026-05-19': [
+    { title: 'Apple interview · Maria S.', type: 'blue' },
+    { title: 'Apple interview · Jenna K.', type: 'blue' },
+    { title: 'Apple interview · Rica P.', type: 'blue' },
+    { title: 'Weekly call · Aleksandar', type: 'green' }
+  ],
+  '2026-05-20': [{ title: 'Weekly call · Sebastien', type: 'green' }],
+  '2026-05-21': [{ title: 'Weekly call · Noah', type: 'green' }, { title: 'Chatter coaching', type: 'violet' }],
+  '2026-05-22': [{ title: 'PH Lane B Week 1 ends', type: 'red' }, { title: 'PH recruiters review', type: 'amber' }],
+  '2026-05-24': [{ title: 'EU Week 1 ends', type: 'green' }],
+  '2026-05-25': [{ title: 'PH Lane A starts', type: 'green' }, { title: 'PH Lane B starts', type: 'amber' }, { title: 'Maja P. offboard decision', type: 'red' }],
+  '2026-05-26': [{ title: 'Weekly call · Aleksandar', type: 'green' }],
+  '2026-05-27': [{ title: 'Weekly call · Sebastien', type: 'green' }],
+  '2026-05-29': [{ title: 'PH Lane A Week 1 ends', type: 'green' }],
+  '2026-05-15': [{ title: 'PH Lane A Week 1 started', type: 'green' }],
+  '2026-05-16': [{ title: 'EU Week 1 started', type: 'green' }],
+  '2026-05-12': [{ title: 'Weekly call · Aleksandar', type: 'green' }],
+  '2026-05-13': [{ title: 'Weekly call · Sebastien', type: 'green' }]
+};
+
+PAGES['calendar'] = () => `
+  <div class="page-heading">
+    <h1>Calendar</h1>
+    <div class="ph-sub">Every interview, cohort milestone, manager check-in, and deadline across all regions.</div>
+  </div>
+  <div class="cal-toolbar">
+    <div class="cal-month" id="cal-month">Loading…</div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <div class="cal-today" onclick="calGoToday()">Today</div>
+      <div class="cal-nav">
+        <div class="cal-nav-btn" onclick="calPrevMonth()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></div>
+        <div class="cal-nav-btn" onclick="calNextMonth()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></div>
+      </div>
+    </div>
+  </div>
+  <div class="cal-grid">
+    <div class="cal-weekdays">
+      <div class="cal-weekday">Mon</div><div class="cal-weekday">Tue</div><div class="cal-weekday">Wed</div>
+      <div class="cal-weekday">Thu</div><div class="cal-weekday">Fri</div><div class="cal-weekday">Sat</div><div class="cal-weekday">Sun</div>
+    </div>
+    <div class="cal-days" id="cal-days"></div>
+  </div>
+  <div class="cal-legend">
+    <div class="cal-legend-item"><div class="cal-legend-swatch" style="background:var(--blue)"></div>Interviews</div>
+    <div class="cal-legend-item"><div class="cal-legend-swatch" style="background:var(--green)"></div>Check-ins / cohort milestones</div>
+    <div class="cal-legend-item"><div class="cal-legend-swatch" style="background:var(--amber)"></div>Reviews</div>
+    <div class="cal-legend-item"><div class="cal-legend-swatch" style="background:var(--red)"></div>Deadlines / decisions</div>
+    <div class="cal-legend-item"><div class="cal-legend-swatch" style="background:var(--violet)"></div>Other</div>
+  </div>
+`;
+
+function initCalendar() { renderCalendar(); }
+function calPrevMonth() { calCursor.setMonth(calCursor.getMonth() - 1); renderCalendar(); }
+function calNextMonth() { calCursor.setMonth(calCursor.getMonth() + 1); renderCalendar(); }
+function calGoToday() { calCursor = new Date(); calCursor.setDate(1); renderCalendar(); }
+
+function renderCalendar() {
+  const monthEl = document.getElementById('cal-month');
+  const daysEl = document.getElementById('cal-days');
+  if (!monthEl || !daysEl) return;
+
+  const year = calCursor.getFullYear();
+  const month = calCursor.getMonth();
+  monthEl.textContent = calCursor.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  // Week starts Monday: day 0 = Sun, we want 6; day 1 = Mon, we want 0
+  let startOffset = (firstDay.getDay() + 6) % 7;
+
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+  let html = '';
+  // Prev month padding
+  const prevMonthLast = new Date(year, month, 0).getDate();
+  for (let i = startOffset - 1; i >= 0; i--) {
+    const d = prevMonthLast - i;
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+  // Current month
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = dateStr === todayStr;
+    const events = CAL_EVENTS[dateStr] || [];
+    const visibleEvents = events.slice(0, 3);
+    const more = events.length - visibleEvents.length;
+    html += `
+      <div class="cal-day ${isToday ? 'today' : ''}">
+        <div class="cal-day-num">${d}</div>
+        <div class="cal-events">
+          ${visibleEvents.map(e => `<div class="cal-event ${e.type}" title="${e.title}">${e.title}</div>`).join('')}
+          ${more > 0 ? `<div class="cal-event-more">+${more} more</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+  // Next month padding to fill grid
+  const cellsUsed = startOffset + lastDay.getDate();
+  const cellsNeeded = Math.ceil(cellsUsed / 7) * 7;
+  for (let d = 1; d <= cellsNeeded - cellsUsed; d++) {
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+  daysEl.innerHTML = html;
+}
+
+/* ===== DEPARTMENT PAGES ===== */
+PAGES['dept-ph'] = () => `
+  <div class="dept-page-head"><div><div class="dept-page-title">🇵🇭 Philippines</div><div class="dept-page-sub">Apple · Darla · Pauline (recruiters) + dedicated training teams</div></div><div class="dept-pct" style="color:var(--amber);font-size:28px">38%</div></div>
+  <div class="dept-kpi-row">
+    <div class="kpi-card"><div class="kpi-label">In pipeline</div><div class="kpi-value">173</div><div class="kpi-meta">↑ 8 from last week</div></div>
+    <div class="kpi-card"><div class="kpi-label">In training</div><div class="kpi-value">39</div><div class="kpi-meta">4 lanes + TB</div></div>
+    <div class="kpi-card"><div class="kpi-label">Active hires</div><div class="kpi-value">437</div><div class="kpi-meta">82% of total</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg grade</div><div class="kpi-value" style="color:var(--blue)">B-</div><div class="kpi-meta">23 stars / 7 fails</div></div>
+  </div>
+  <div class="panel" style="margin-bottom:14px"><div class="panel-head"><div class="panel-title">Pipeline</div></div><div class="dept-pipeline"><div class="pipeline-stage"><div class="num">113</div><div class="lbl">Typeform</div></div><div class="pipeline-stage"><div class="num">30</div><div class="lbl">Passed</div></div><div class="pipeline-stage"><div class="num">21</div><div class="lbl">Pending</div></div><div class="pipeline-stage"><div class="num">21</div><div class="lbl">Scheduled</div></div><div class="pipeline-stage"><div class="num">39</div><div class="lbl">Training</div></div><div class="pipeline-stage"><div class="num">437</div><div class="lbl">Active</div></div></div></div>
+  <div class="panel" style="margin-bottom:14px"><div class="panel-head"><div class="panel-title">Grade distribution</div></div><div class="grade-dist"><div class="gd"><div class="gd-letter grade-A">A</div><div class="gd-count">23</div></div><div class="gd"><div class="gd-letter grade-B">B</div><div class="gd-count">54</div></div><div class="gd"><div class="gd-letter grade-C">C</div><div class="gd-count">61</div></div><div class="gd"><div class="gd-letter grade-D">D</div><div class="gd-count">28</div></div><div class="gd"><div class="gd-letter grade-F">F</div><div class="gd-count">7</div></div></div></div>
+  <div class="panel"><div class="panel-head"><div class="panel-title">Training lanes</div></div>${row('Lane A · Week 1 · Joan', '6 trainees · avg B+', 'ok', '81% pass')}${row('Lane B · Week 1 · Mark', '6 trainees · avg C', 'warn', '58% pass')}${row('Training Board · Lyka', '8 chatters · Shift 1', 'ok', '')}${row('Training Board · Andre', '10 chatters · Shift 2', 'ok', '')}</div>
+`;
+PAGES['dept-eu'] = () => `
+  <div class="dept-page-head"><div><div class="dept-page-title">🇪🇺 Europe</div><div class="dept-page-sub">Aleksandar · vertical owner</div></div><div class="dept-pct" style="color:var(--green);font-size:28px">41%</div></div>
+  <div class="dept-kpi-row">
+    <div class="kpi-card"><div class="kpi-label">In pipeline</div><div class="kpi-value">33</div><div class="kpi-meta">3 new this week</div></div>
+    <div class="kpi-card"><div class="kpi-label">In training</div><div class="kpi-value">24</div><div class="kpi-meta">Exp + Non-Exp</div></div>
+    <div class="kpi-card"><div class="kpi-label">Active hires</div><div class="kpi-value">42</div><div class="kpi-meta">10% of total</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg grade</div><div class="kpi-value" style="color:var(--green)">B+</div><div class="kpi-meta">5 stars / 0 fails</div></div>
+  </div>
+  <div class="panel"><div class="panel-head"><div class="panel-title">Pipeline</div></div><div class="dept-pipeline"><div class="pipeline-stage"><div class="num">3</div><div class="lbl">Typeform</div></div><div class="pipeline-stage"><div class="num">6</div><div class="lbl">Pending</div></div><div class="pipeline-stage"><div class="num">15</div><div class="lbl">W1 Non-Exp</div></div><div class="pipeline-stage"><div class="num">7</div><div class="lbl">W1 Exp</div></div><div class="pipeline-stage"><div class="num">2</div><div class="lbl">W2</div></div><div class="pipeline-stage"><div class="num">42</div><div class="lbl">Active</div></div></div></div>
+`;
+PAGES['dept-sa'] = () => `
+  <div class="dept-page-head"><div><div class="dept-page-title">🇧🇷 South America</div><div class="dept-page-sub">Sebastien · vertical owner</div></div><div class="dept-pct" style="color:var(--amber);font-size:28px">35%</div></div>
+  <div class="dept-kpi-row">
+    <div class="kpi-card"><div class="kpi-label">In pipeline</div><div class="kpi-value">29</div><div class="kpi-meta">8 new typeforms</div></div>
+    <div class="kpi-card"><div class="kpi-label">In training</div><div class="kpi-value">18</div><div class="kpi-meta">1 lane active</div></div>
+    <div class="kpi-card"><div class="kpi-label">Active hires</div><div class="kpi-value">29</div><div class="kpi-meta">7% of total</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg grade</div><div class="kpi-value" style="color:var(--yellow)">C+</div><div class="kpi-meta">2 stars / 2 at risk</div></div>
+  </div>
+  <div class="panel"><div class="panel-head"><div class="panel-title">Pipeline</div></div><div class="dept-pipeline"><div class="pipeline-stage"><div class="num">8</div><div class="lbl">Typeform</div></div><div class="pipeline-stage"><div class="num">3</div><div class="lbl">Pending</div></div><div class="pipeline-stage"><div class="num">18</div><div class="lbl">W1</div></div><div class="pipeline-stage"><div class="num">29</div><div class="lbl">Active</div></div></div></div>
+`;
+PAGES['dept-uk'] = () => `
+  <div class="dept-page-head"><div><div class="dept-page-title">🇬🇧 United Kingdom</div><div class="dept-page-sub">Noah · vertical owner · newest region</div></div><div class="dept-pct" style="color:var(--red);font-size:28px">22%</div></div>
+  <div class="dept-kpi-row">
+    <div class="kpi-card"><div class="kpi-label">In pipeline</div><div class="kpi-value">9</div><div class="kpi-meta">3 new typeforms</div></div>
+    <div class="kpi-card"><div class="kpi-label">In training</div><div class="kpi-value">2</div><div class="kpi-meta">Smallest cohort</div></div>
+    <div class="kpi-card"><div class="kpi-label">Active hires</div><div class="kpi-value">11</div><div class="kpi-meta">3% of total</div></div>
+    <div class="kpi-card"><div class="kpi-label">Avg grade</div><div class="kpi-value" style="color:var(--red)">C</div><div class="kpi-meta">1 star / 2 at risk</div></div>
+  </div>
+  <div class="panel"><div class="panel-head"><div class="panel-title">Pipeline</div></div><div class="dept-pipeline"><div class="pipeline-stage"><div class="num">3</div><div class="lbl">Typeform</div></div><div class="pipeline-stage"><div class="num">4</div><div class="lbl">Pending</div></div><div class="pipeline-stage"><div class="num">1</div><div class="lbl">W1</div></div><div class="pipeline-stage"><div class="num">1</div><div class="lbl">W2</div></div><div class="pipeline-stage"><div class="num">11</div><div class="lbl">Active</div></div></div></div>
+`;
+
+PAGES['top-performers'] = () => `
+  <div class="page-heading"><h1>Top performers</h1><div class="ph-sub">A-graded candidates trending up over the last 3+ days</div></div>
+  <div class="panel">
+    ${candRow('Maria L.', 'A', {dir:'up',icon:'↑'}, 'EU · Week 1 · Day 3', [{type:'strength',text:'Fast learner'}], 'maria-l')}
+    ${candRow('Anna G.', 'A', {dir:'up',icon:'↑'}, 'PH · Lane A · Week 1', [{type:'strength',text:'Grammar'}], 'anna-g')}
+    ${candRow('Sofia M.', 'A', {dir:'up',icon:'↑'}, 'EU · Week 1 · exp', [{type:'strength',text:'Experienced'}], 'sofia-m')}
+    ${candRow('Bea M.', 'A', {dir:'up',icon:'↑'}, 'PH · Lane A · Week 1', [{type:'strength',text:'Personality'}], 'bea-m')}
+    ${candRow('Jenna K.', 'A', {dir:'flat',icon:'→'}, 'PH · Interview today', [{type:'strength',text:'Exp 2yr'}], 'jenna-k')}
+  </div>
+`;
+PAGES['at-risk'] = () => `
+  <div class="page-heading"><h1>At risk</h1><div class="ph-sub">Graded D-F or trending down sharply</div></div>
+  <div class="panel">
+    ${candRow('Maja P.', 'F', {dir:'down',icon:'↓'}, 'PH · Lane B · Day 3', [{type:'flag',text:'Late replies'}], 'maja-p')}
+    ${candRow('Ivan P.', 'D', {dir:'down',icon:'↓'}, 'EU · Week 1 · Day 3', [{type:'flag',text:'Slow start'}], 'ivan-p')}
+    ${candRow('James T.', 'D', {dir:'down',icon:'↓'}, 'UK · Week 1 · Day 5', [{type:'flag',text:'Tech issues'}], 'james-t')}
+    ${candRow('Diego F.', 'D', {dir:'flat',icon:'→'}, 'SA · Pending · 4d', [{type:'flag',text:'Ghosting'}], 'diego-f')}
+  </div>
+`;
+PAGES['activity'] = () => `
+  <div class="page-heading"><h1>Activity log</h1><div class="ph-sub">Recent stage transitions, grade changes, and operational events</div></div>
+  <div class="panel">
+    <div class="timeline" style="padding-left:16px">
+      <div class="tl-entry up"><div class="tl-date">May 18 · 14:23</div><div class="tl-title">Maria L. moved to Day 3 of EU Week 1 · graded A ↑</div><div class="tl-meta">Aleksandar</div></div>
+      <div class="tl-entry down"><div class="tl-date">May 18 · 11:47</div><div class="tl-title">Maja P. graded F · Mark recommends offboard</div><div class="tl-meta">PH Lane B</div></div>
+      <div class="tl-entry"><div class="tl-date">May 18 · 09:15</div><div class="tl-title">3 new typeforms came in overnight</div><div class="tl-meta">2 PH · 1 EU</div></div>
+      <div class="tl-entry up"><div class="tl-date">May 17 · 18:30</div><div class="tl-title">Bea M. graded A · second day in a row</div><div class="tl-meta">PH Lane A</div></div>
+      <div class="tl-entry down"><div class="tl-date">May 17 · 16:02</div><div class="tl-title">Carlos M. still pending interview · 5 days</div><div class="tl-meta">SA</div></div>
+      <div class="tl-entry"><div class="tl-date">May 17 · 10:00</div><div class="tl-title">EU Week 1 cohort started · 5 trainees</div><div class="tl-meta">Aleksandar</div></div>
+    </div>
+  </div>
+`;
+
+PAGES['settings'] = () => `
+  <div class="page-heading"><h1>Settings</h1><div class="ph-sub">Manage dashboard preferences, integrations, and account</div></div>
+  <div class="settings-grid">
+    <div class="settings-nav">
+      <div class="settings-nav-item active" data-st="general" onclick="switchSettings('general')">General</div>
+      <div class="settings-nav-item" data-st="account" onclick="switchSettings('account')">Account &amp; security</div>
+      <div class="settings-nav-item" data-st="alerts" onclick="switchSettings('alerts')">Alert thresholds</div>
+      <div class="settings-nav-item" data-st="dashboard" onclick="switchSettings('dashboard')">Dashboard preferences</div>
+      <div class="settings-nav-item" data-st="integrations" onclick="switchSettings('integrations')">Integrations</div>
+      <div class="settings-nav-item" data-st="danger" onclick="switchSettings('danger')">Advanced</div>
+    </div>
+    <div class="settings-content">
+      <div class="settings-section" data-st-panel="general">
+        <h3>General</h3><div class="ss-desc">Workspace settings that apply across the dashboard.</div>
+        <div class="field-row"><div><div class="field-label">Workspace name</div><div class="field-sub">Shown in the sidebar and emails</div></div><div class="field-control"><input class="input" value="War Room" /></div></div>
+        <div class="field-row"><div><div class="field-label">Time zone</div><div class="field-sub">Used for dates and morning briefing timing</div></div><div class="field-control"><select class="select"><option>Asia/Manila (GMT+8)</option><option selected>Asia/Bangkok (GMT+7)</option><option>Europe/London (GMT+0)</option></select></div></div>
+        <div class="field-row"><div><div class="field-label">Source mix target (PH share)</div><div class="field-sub">Used by the drifting alert</div></div><div class="field-control"><input class="input num" value="25" />%</div></div>
+      </div>
+      <div class="settings-section" data-st-panel="account" style="display:none">
+        <h3>Account &amp; security</h3><div class="ss-desc">Your sign-in details.</div>
+        <div class="field-row"><div><div class="field-label">Email</div><div class="field-sub">Used for sign-in and recovery</div></div><div class="field-control"><input class="input wide" value="operator@warroom.app" /></div></div>
+        <div class="field-row"><div><div class="field-label">Current password</div></div><div class="field-control"><input class="input" type="password" placeholder="••••••••" /></div></div>
+        <div class="field-row"><div><div class="field-label">New password</div><div class="field-sub">At least 12 characters</div></div><div class="field-control"><input class="input" type="password" placeholder="Choose new password" /></div></div>
+        <div class="field-row"><div><div class="field-label">Confirm new password</div></div><div class="field-control"><input class="input" type="password" placeholder="Re-enter" /></div></div>
+        <div class="field-row"><div><div class="field-label">Two-factor authentication</div><div class="field-sub">Authenticator app</div></div><div class="field-control"><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+        <div style="margin-top:18px;display:flex;gap:8px;justify-content:flex-end"><button class="btn ghost">Cancel</button><button class="btn">Save changes</button></div>
+      </div>
+      <div class="settings-section" data-st-panel="alerts" style="display:none">
+        <h3>Alert thresholds</h3><div class="ss-desc">Tune when alerts fire per stage.</div>
+        <div class="field-row"><div><div class="field-label">Typeform → Passed</div><div class="field-sub">Alert if no movement after</div></div><div class="field-control"><input class="input num" value="3" />days</div></div>
+        <div class="field-row"><div><div class="field-label">Pending Interview</div></div><div class="field-control"><input class="input num" value="2" />days</div></div>
+        <div class="field-row"><div><div class="field-label">Week 1 Training</div></div><div class="field-control"><input class="input num" value="8" />days</div></div>
+        <div class="field-row"><div><div class="field-label">Manager inactivity</div></div><div class="field-control"><input class="input num" value="24" />hours</div></div>
+      </div>
+      <div class="settings-section" data-st-panel="dashboard" style="display:none">
+        <h3>Dashboard preferences</h3><div class="ss-desc">Control what appears and how.</div>
+        <div class="field-row"><div><div class="field-label">Default landing view</div></div><div class="field-control"><select class="select"><option selected>Today</option><option>This week</option></select></div></div>
+        <div class="field-row"><div><div class="field-label">Show department cards</div></div><div class="field-control"><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+        <div class="field-row"><div><div class="field-label">Show source mix tracker</div></div><div class="field-control"><div class="toggle on" onclick="this.classList.toggle('on')"></div></div></div>
+        <div class="field-row"><div><div class="field-label">Auto-archive done items</div></div><div class="field-control"><div class="toggle" onclick="this.classList.toggle('on')"></div></div></div>
+      </div>
+      <div class="settings-section" data-st-panel="integrations" style="display:none">
+        <h3>Integrations</h3><div class="ss-desc">External system connections.</div>
+        <div class="field-row"><div><div class="field-label">Monday.com</div><div class="field-sub">Source of all candidate data</div></div><div class="field-control"><span class="item-tag tag-rhythm">Connected</span><button class="btn ghost">Manage</button></div></div>
+        <div class="field-row"><div><div class="field-label">Sync frequency</div></div><div class="field-control"><select class="select"><option selected>Every 15 minutes</option><option>Every hour</option></select></div></div>
+        <div class="field-row"><div><div class="field-label">Infloww (beta)</div><div class="field-sub">Post-hire performance data</div></div><div class="field-control"><span class="item-tag tag-warning">Not connected</span><button class="btn">Request access</button></div></div>
+      </div>
+      <div class="settings-section" data-st-panel="danger" style="display:none">
+        <h3>Advanced</h3><div class="ss-desc">Destructive actions.</div>
+        <div class="field-row"><div><div class="field-label">Export all data</div></div><div class="field-control"><button class="btn ghost">Export</button></div></div>
+        <div class="field-row"><div><div class="field-label">Resync everything</div></div><div class="field-control"><button class="btn ghost">Resync</button></div></div>
+        <div class="field-row"><div><div class="field-label">Sign out everywhere</div></div><div class="field-control"><button class="btn danger">Sign out all sessions</button></div></div>
+      </div>
+    </div>
+  </div>
+`;
+function switchSettings(key) {
+  document.querySelectorAll('.settings-nav-item').forEach(i => i.classList.toggle('active', i.dataset.st === key));
+  document.querySelectorAll('[data-st-panel]').forEach(p => p.style.display = p.dataset.stPanel === key ? '' : 'none');
+}
+
+/* ===== HELPERS ===== */
+function candRow(name, grade, trajectory, info, extras, candidateId) {
+  const gradeHtml = grade ? `<div class="grade-badge grade-${grade}">${grade}</div>` : '';
+  const trajHtml = trajectory ? `<span class="trajectory ${trajectory.dir}">${trajectory.icon}</span>` : '';
+  const extraHtml = extras ? extras.map(e => `<span class="${e.type}">${e.text}</span>`).join(' ') : '';
+  const clickAttr = candidateId ? `class="candidate-row clickable" onclick="openCandidate('${candidateId}', event)"` : 'class="candidate-row"';
+  return `<div ${clickAttr}><div class="cand-left">${gradeHtml}<div style="min-width:0;flex:1"><div class="name">${name} ${trajHtml}</div><div class="info">${info} ${extraHtml}</div></div></div></div>`;
+}
+function row(name, info, dayTone, tag) {
+  return `<div class="candidate-row"><div class="cand-left"><div style="min-width:0;flex:1"><div class="name">${name}</div><div class="info">${info}</div></div></div>${tag ? `<div class="days-tag ${dayTone}">${tag}</div>` : ''}</div>`;
+}
+
+const MODALS = {
+  'summary-pipeline': { title: 'Total in pipeline · 487', subtitle: 'Across all 4 regions',
+    body: () => `<div class="modal-section"><div class="modal-section-title">By region</div>${row('🇵🇭 Philippines', '173 · avg B-', 'ok', '38%')}${row('🇪🇺 Europe', '33 · avg B+', 'ok', '41%')}${row('🇧🇷 South America', '29 · avg C+', 'warn', '35%')}${row('🇬🇧 United Kingdom', '9 · avg C', 'bad', '22%')}</div>` },
+  'summary-interviews': { title: 'In interviews · 34', subtitle: '8 today',
+    body: () => `<div class="modal-section"><div class="modal-section-title">Today</div>${candRow('Maria S.', null, null, 'PH · 10am', [], 'maria-s')}${candRow('Jenna K.', 'A', {dir:'flat',icon:'→'}, 'PH · 1pm', [], 'jenna-k')}${candRow('Rica P.', null, null, 'PH · 4pm', [], 'rica-p')}</div>` },
+  'summary-training': { title: 'In training · 68', subtitle: '6 lanes',
+    body: () => `<div class="modal-section">${row('Lane A · Joan', '6 · avg B+', 'ok', '81%')}${row('Lane B · Mark', '6 · avg C', 'warn', '58%')}</div>` },
+  'summary-active': { title: 'Active · 437', subtitle: 'In company operation',
+    body: () => `<div class="modal-section">${row('PH', '355', 'ok', '82%')}${row('EU', '42', 'ok', '10%')}${row('SA', '29', 'ok', '7%')}${row('UK', '11', 'warn', '3%')}</div>` },
+  'item-noah-typeforms': { title: 'Noah — 4 typeforms untouched', subtitle: 'UK · 48hr threshold',
+    body: () => `<div class="modal-section">${candRow('FSF', null, {dir:'down',icon:'↓'}, '5d', [], 'fsf')}${candRow('NOAH', null, {dir:'down',icon:'↓'}, '6d', [], 'noah')}${candRow('Noah Whall', null, {dir:'down',icon:'↓'}, '5d', [], 'noah-whall')}${candRow('John K.', null, {dir:'down',icon:'↓'}, '5d', [], 'john-k')}</div>` },
+  'item-sebastien-interviews': { title: 'Sebastien — 3 stuck', subtitle: 'SA',
+    body: () => `<div class="modal-section">${candRow('Carlos M.', 'B', {dir:'flat',icon:'→'}, '6d', [], 'carlos-m')}${candRow('Lucia R.', 'C', {dir:'flat',icon:'→'}, '5d', [], 'lucia-r')}${candRow('Diego F.', 'D', {dir:'down',icon:'↓'}, '4d', [{type:'flag',text:'Ghosting'}], 'diego-f')}</div>` }
+};
+
+function openCandidate(id, ev) {
+  if (ev) ev.stopPropagation();
+  const c = CANDIDATES[id];
+  if (!c) return;
+  const tagsHtml = [...c.tags.strengths.map(s => `<span class="ch-tag strength">${s}</span>`), ...c.tags.flags.map(f => `<span class="ch-tag flag">${f}</span>`)].join('');
+  const trajHtml = c.trajectory ? `<span class="trajectory ${c.trajectory}">${c.trajectory === 'up' ? '↑' : c.trajectory === 'down' ? '↓' : '→'}</span>` : '';
+  const gradeHtml = c.grade ? `<div class="grade-badge grade-${c.grade}">${c.grade}</div>` : '<div class="grade-badge" style="background:var(--surface-3);color:var(--text-4)">—</div>';
+  const timelineHtml = c.timeline.map(t => `<div class="tl-entry ${t.type}"><div class="tl-date">${t.date}</div><div class="tl-title">${t.title}${t.grade ? `<span class="tl-grade grade-${t.grade}">${t.grade}</span>` : ''}</div>${t.meta ? `<div class="tl-meta">${t.meta}</div>` : ''}</div>`).join('');
+  const allNotes = [...c.notes, ...(SESSION_NOTES[id] || [])];
+  const notesHtml = allNotes.length ? allNotes.map(n => `<div class="note"><div class="note-date">${n.date}</div><div class="note-text">${n.text.replace(/</g,'&lt;')}</div></div>`).join('') : '<div style="color:var(--text-4);font-size:13px;padding:8px 0">No notes yet</div>';
+
+  document.getElementById('modal-title').textContent = c.name;
+  document.getElementById('modal-subtitle').textContent = `${c.region} · ${c.stage} · ${c.manager}`;
+  document.getElementById('modal-body').innerHTML = `
+    <div class="cand-header">${gradeHtml}<div class="ch-body"><div class="ch-name">${c.name} ${trajHtml}</div><div class="ch-stage">${c.region} · ${c.stage} · ${c.manager}</div><div class="ch-tags">${tagsHtml || '<span style="font-size:11px;color:var(--text-4)">No tags</span>'}</div></div></div>
+    <div class="modal-section"><div class="modal-section-title">Journey</div><div class="timeline">${timelineHtml || '<div style="color:var(--text-4);font-size:13px">No timeline yet</div>'}</div></div>
+    <div class="modal-section"><div class="modal-section-title">Your private notes</div><div class="notes-list">${notesHtml}</div><div class="note-input-wrap"><textarea id="note-input" class="note-input" rows="2" placeholder="Add a note about ${c.name}…"></textarea><button class="note-save" onclick="saveNote('${id}')">Save</button></div></div>
+  `;
+  document.getElementById('modal-backdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function saveNote(id) {
+  const input = document.getElementById('note-input');
+  const text = input.value.trim();
+  if (!text) return;
+  if (!SESSION_NOTES[id]) SESSION_NOTES[id] = [];
+  const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  SESSION_NOTES[id].push({ date: `${dateStr} (just now)`, text });
+  openCandidate(id);
+}
+function openModal(key, ev) {
+  if (ev) ev.stopPropagation();
+  const data = MODALS[key];
+  if (!data) return;
+  document.getElementById('modal-title').textContent = data.title;
+  document.getElementById('modal-subtitle').textContent = data.subtitle;
+  document.getElementById('modal-body').innerHTML = data.body();
+  document.getElementById('modal-backdrop').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeModal() {
+  document.getElementById('modal-backdrop').classList.remove('open');
+  document.body.style.overflow = '';
+}
+function closeModalOnBackdrop(ev) { if (ev.target.id === 'modal-backdrop') closeModal(); }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+function toggleDone(el, ev) { if (ev) ev.stopPropagation(); el.classList.toggle('done'); }
+
+document.getElementById('search-input').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const results = document.getElementById('search-results');
+  if (!q) { results.classList.remove('open'); return; }
+  const matches = Object.entries(CANDIDATES).filter(([id, c]) => c.name.toLowerCase().includes(q)).slice(0, 8);
+  if (matches.length === 0) { results.innerHTML = '<div class="search-empty">No candidates found</div>'; results.classList.add('open'); return; }
+  results.innerHTML = matches.map(([id, c]) => {
+    const gradeClass = c.grade ? `grade-${c.grade}` : '';
+    const gradeText = c.grade || '—';
+    const gradeStyle = !c.grade ? 'background:var(--surface-3);color:var(--text-4)' : '';
+    return `<div class="search-result" onclick="openCandidate('${id}'); closeSearch();"><div class="sr-grade ${gradeClass}" style="${gradeStyle}">${gradeText}</div><div><div class="sr-name">${c.name}</div><div class="sr-info">${c.region} · ${c.stage}</div></div></div>`;
+  }).join('');
+  results.classList.add('open');
+});
+function closeSearch() { document.getElementById('search-input').value = ''; document.getElementById('search-results').classList.remove('open'); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.search-wrap')) document.getElementById('search-results').classList.remove('open'); });
+
+const VIEW_LABELS = {
+  today: { heading: 'TODAY · WHAT NEEDS YOU', count: '13 items' },
+  week: { heading: 'THIS WEEK · THE BIG PICTURE', count: '8 items' },
+  next: { heading: 'NEXT WEEK · PLANNING AHEAD', count: '5 items' }
+};
+function switchView(view) {
+  document.querySelectorAll('.time-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.view-content').forEach(v => v.style.display = v.dataset.view === view ? '' : 'none');
+  document.getElementById('view-heading').textContent = VIEW_LABELS[view].heading;
+  document.getElementById('view-count').textContent = VIEW_LABELS[view].count;
+}
+function initDashboardListeners() {
+  const input = document.getElementById('reminder-input');
+  if (!input) return;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && input.value.trim()) {
+      const item = document.createElement('div');
+      item.className = 'item personal';
+      item.onclick = (ev) => toggleDone(item, ev);
+      item.innerHTML = `<div class="checkbox"></div><div class="item-body"><div class="item-title">${input.value.trim().replace(/</g,'&lt;')}</div></div><div class="item-right"><span class="item-tag tag-personal">Personal</span></div>`;
+      document.getElementById('personal-items').appendChild(item);
+      input.value = '';
+    }
+  });
+}
+
+navigate('dashboard');
+</script>
+</body>
+</html>
