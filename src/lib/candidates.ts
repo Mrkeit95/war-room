@@ -8,11 +8,15 @@ export type TimelineEntry = {
   grade?: Grade
 }
 
+export type Region = 'PH' | 'EU' | 'SA' | 'UK'
+export type StageKey = 'typeform' | 'passed' | 'pending' | 'scheduled' | 'training' | 'standby' | 'active'
+
 export type Candidate = {
   id: string
   name: string
-  region: 'PH' | 'EU' | 'SA' | 'UK'
+  region: Region
   stage: string
+  stageKey: StageKey
   grade: Grade
   trajectory: Trajectory
   manager: string
@@ -23,49 +27,98 @@ export type Candidate = {
 }
 
 export const CANDIDATES: Record<string, Candidate> = {
-  'maria-l': { id: 'maria-l', name: 'Maria L.', region: 'EU', stage: 'Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3,
+  'maria-l': { id: 'maria-l', name: 'Maria L.', region: 'EU', stage: 'Week 1 · Day 3', stageKey: 'training', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3,
     tags: { strengths: ['Fast learner', 'Personality'], flags: [] },
     timeline: [
       { date: 'May 13', title: 'Submitted typeform', type: 'flat' },
       { date: 'May 15', title: 'Interview passed', type: 'up', grade: 'B' },
       { date: 'May 18', title: 'Day 3 score 9/10', type: 'up', grade: 'A' },
     ], notes: [] },
-  'ivan-p': { id: 'ivan-p', name: 'Ivan P.', region: 'EU', stage: 'Week 1 · Day 3', grade: 'D', trajectory: 'down', manager: 'Aleksandar', days: 3,
+  'ivan-p': { id: 'ivan-p', name: 'Ivan P.', region: 'EU', stage: 'Week 1 · Day 3', stageKey: 'training', grade: 'D', trajectory: 'down', manager: 'Aleksandar', days: 3,
     tags: { strengths: [], flags: ['Slow start'] },
     timeline: [{ date: 'May 18', title: 'Day 3 score 4/10', type: 'down', grade: 'D' }], notes: [] },
-  'sofia-m': { id: 'sofia-m', name: 'Sofia M.', region: 'EU', stage: 'Week 1 Exp · Day 3', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3,
+  'sofia-m': { id: 'sofia-m', name: 'Sofia M.', region: 'EU', stage: 'Week 1 Exp · Day 3', stageKey: 'training', grade: 'A', trajectory: 'up', manager: 'Aleksandar', days: 3,
     tags: { strengths: ['Experienced 3yr'], flags: [] }, timeline: [], notes: [] },
-  'anna-g': { id: 'anna-g', name: 'Anna G.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3,
+  'anna-g': { id: 'anna-g', name: 'Anna G.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', stageKey: 'training', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3,
     tags: { strengths: ['Grammar', 'Hustle'], flags: [] }, timeline: [], notes: [] },
-  'bea-m': { id: 'bea-m', name: 'Bea M.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3,
+  'bea-m': { id: 'bea-m', name: 'Bea M.', region: 'PH', stage: 'Lane A · Week 1 · Day 3', stageKey: 'training', grade: 'A', trajectory: 'up', manager: 'Joan', days: 3,
     tags: { strengths: ['Personality'], flags: [] }, timeline: [], notes: [] },
-  'maja-p': { id: 'maja-p', name: 'Maja P.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', grade: 'F', trajectory: 'down', manager: 'Mark', days: 3,
+  'maja-p': { id: 'maja-p', name: 'Maja P.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', stageKey: 'training', grade: 'F', trajectory: 'down', manager: 'Mark', days: 3,
     tags: { strengths: [], flags: ['Late replies', 'Low engagement'] },
     timeline: [{ date: 'May 18', title: 'Day 3 score 3/10', type: 'down', grade: 'F' }], notes: [] },
-  'james-t': { id: 'james-t', name: 'James T.', region: 'UK', stage: 'Week 1 · Day 5', grade: 'D', trajectory: 'down', manager: 'Noah', days: 5,
+  'james-t': { id: 'james-t', name: 'James T.', region: 'UK', stage: 'Week 1 · Day 5', stageKey: 'training', grade: 'D', trajectory: 'down', manager: 'Noah', days: 5,
     tags: { strengths: [], flags: ['Tech issues'] }, timeline: [], notes: [] },
-  'jenna-k': { id: 'jenna-k', name: 'Jenna K.', region: 'PH', stage: 'Interview today 1pm', grade: 'A', trajectory: 'flat', manager: 'Apple', days: 0,
+  'jenna-k': { id: 'jenna-k', name: 'Jenna K.', region: 'PH', stage: 'Interview today 1pm', stageKey: 'scheduled', grade: 'A', trajectory: 'flat', manager: 'Apple', days: 0,
     tags: { strengths: ['Experienced 2yr'], flags: [] }, timeline: [], notes: [] },
-  'maria-s': { id: 'maria-s', name: 'Maria S.', region: 'PH', stage: 'Interview today 10am', grade: null, trajectory: null, manager: 'Apple', days: 0,
+  'maria-s': { id: 'maria-s', name: 'Maria S.', region: 'PH', stage: 'Interview today 10am', stageKey: 'scheduled', grade: null, trajectory: null, manager: 'Apple', days: 0,
     tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
-  'lena-w': { id: 'lena-w', name: 'Lena W.', region: 'EU', stage: 'Interview today 2pm CET', grade: null, trajectory: null, manager: 'Aleksandar', days: 0,
+  'lena-w': { id: 'lena-w', name: 'Lena W.', region: 'EU', stage: 'Interview today 2pm CET', stageKey: 'scheduled', grade: null, trajectory: null, manager: 'Aleksandar', days: 0,
     tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
-  'pablo-g': { id: 'pablo-g', name: 'Pablo G.', region: 'SA', stage: 'Interview today 3pm BRT', grade: 'C', trajectory: 'down', manager: 'Sebastien', days: 0,
+  'pablo-g': { id: 'pablo-g', name: 'Pablo G.', region: 'SA', stage: 'Interview today 3pm BRT', stageKey: 'scheduled', grade: 'C', trajectory: 'down', manager: 'Sebastien', days: 0,
     tags: { strengths: [], flags: ['Late to call'] }, timeline: [], notes: [] },
-  'carlos-m': { id: 'carlos-m', name: 'Carlos M.', region: 'SA', stage: 'Pending Interview · 6d', grade: 'B', trajectory: 'flat', manager: 'Sebastien', days: 6,
+  'carlos-m': { id: 'carlos-m', name: 'Carlos M.', region: 'SA', stage: 'Pending Interview · 6d', stageKey: 'pending', grade: 'B', trajectory: 'flat', manager: 'Sebastien', days: 6,
     tags: { strengths: ['Experienced'], flags: [] }, timeline: [], notes: [] },
-  'lucia-r': { id: 'lucia-r', name: 'Lucia R.', region: 'SA', stage: 'Pending Interview · 5d', grade: 'C', trajectory: 'flat', manager: 'Sebastien', days: 5,
+  'lucia-r': { id: 'lucia-r', name: 'Lucia R.', region: 'SA', stage: 'Pending Interview · 5d', stageKey: 'pending', grade: 'C', trajectory: 'flat', manager: 'Sebastien', days: 5,
     tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
-  'diego-f': { id: 'diego-f', name: 'Diego F.', region: 'SA', stage: 'Pending Interview · 4d', grade: 'D', trajectory: 'flat', manager: 'Sebastien', days: 4,
+  'diego-f': { id: 'diego-f', name: 'Diego F.', region: 'SA', stage: 'Pending Interview · 4d', stageKey: 'pending', grade: 'D', trajectory: 'flat', manager: 'Sebastien', days: 4,
     tags: { strengths: [], flags: ['Ghosting'] }, timeline: [], notes: [] },
-  'fsf': { id: 'fsf', name: 'FSF', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
+  'fsf': { id: 'fsf', name: 'FSF', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
     tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'noah-whall': { id: 'noah-whall', name: 'Noah Whall', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
+  'noah-whall': { id: 'noah-whall', name: 'Noah Whall', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
     tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'noah': { id: 'noah', name: 'NOAH', region: 'UK', stage: 'Typeform · 6d', grade: null, trajectory: 'down', manager: 'Noah', days: 6,
+  'noah': { id: 'noah', name: 'NOAH', region: 'UK', stage: 'Typeform · 6d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 6,
     tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'john-k': { id: 'john-k', name: 'John K.', region: 'UK', stage: 'Typeform · 5d', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
+  'john-k': { id: 'john-k', name: 'John K.', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
     tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
+}
+
+export type SegmentFilter =
+  | { kind: 'stage'; region: Region; stage: StageKey }
+  | { kind: 'grade'; region: Region; grade: 'A' | 'B' | 'C' | 'D' | 'F' }
+  | { kind: 'all'; region: Region }
+
+export function parseSegment(value: string | null | undefined): SegmentFilter | null {
+  if (!value) return null
+  const [regionRaw, rest] = value.split(':')
+  if (!regionRaw || !rest) return null
+  const region = regionRaw.toUpperCase() as Region
+  if (!['PH', 'EU', 'SA', 'UK'].includes(region)) return null
+
+  if (rest === 'all') return { kind: 'all', region }
+  if (rest.startsWith('grade-')) {
+    const grade = rest.slice(6).toUpperCase() as 'A' | 'B' | 'C' | 'D' | 'F'
+    if (!['A', 'B', 'C', 'D', 'F'].includes(grade)) return null
+    return { kind: 'grade', region, grade }
+  }
+  const stage = rest as StageKey
+  if (!['typeform', 'passed', 'pending', 'scheduled', 'training', 'standby', 'active'].includes(stage)) return null
+  return { kind: 'stage', region, stage }
+}
+
+export function filterCandidates(filter: SegmentFilter): Candidate[] {
+  const all = Object.values(CANDIDATES).filter(c => c.region === filter.region)
+  if (filter.kind === 'all') return all
+  if (filter.kind === 'stage') return all.filter(c => c.stageKey === filter.stage)
+  return all.filter(c => c.grade === filter.grade)
+}
+
+const REGION_LABELS: Record<Region, { flag: string; name: string }> = {
+  PH: { flag: '🇵🇭', name: 'Philippines' },
+  EU: { flag: '🇪🇺', name: 'Europe' },
+  SA: { flag: '🇧🇷', name: 'South America' },
+  UK: { flag: '🇬🇧', name: 'United Kingdom' },
+}
+
+export function segmentLabel(filter: SegmentFilter): { title: string; sub: string } {
+  const r = REGION_LABELS[filter.region]
+  const headline = `${r.flag} ${r.name}`
+  if (filter.kind === 'all') return { title: headline, sub: 'All candidates in pipeline' }
+  if (filter.kind === 'grade') return { title: headline, sub: `Grade ${filter.grade}` }
+  const stageLabels: Record<StageKey, string> = {
+    typeform: 'Typeform', passed: 'Passed', pending: 'Pending Interview',
+    scheduled: 'Scheduled', training: 'In training', standby: 'Standby', active: 'Active hires',
+  }
+  return { title: headline, sub: stageLabels[filter.stage] }
 }
 
 export function getCandidate(id: string | null | undefined): Candidate | null {

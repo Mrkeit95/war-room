@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import Sidebar from '@/components/Sidebar'
 import Topbar from '@/components/Topbar'
 import CandidateModal from '@/components/CandidateModal'
+import SegmentModal from '@/components/SegmentModal'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,6 +14,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </div>
+      <Suspense fallback={null}>
+        <SegmentModal />
+      </Suspense>
       <Suspense fallback={null}>
         <CandidateModal />
       </Suspense>

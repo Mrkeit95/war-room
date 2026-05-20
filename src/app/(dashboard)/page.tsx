@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
+import Reminders from '@/components/Reminders'
 
 export default function DashboardPage() {
   return (
@@ -157,6 +158,9 @@ export default function DashboardPage() {
 
         {/* Side panels */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Reminders */}
+          <Reminders />
+
           {/* Top performers */}
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>

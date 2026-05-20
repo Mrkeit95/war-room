@@ -5,21 +5,22 @@ export default function PhilippinesPage() {
     <DepartmentPage
       flag="🇵🇭"
       name="Philippines"
+      regionCode="ph"
       subtitle="Apple · Darla · Pauline (recruiters) + dedicated training teams"
       conversion={{ pct: 38, color: 'var(--amber)' }}
       kpis={[
-        { label: 'In pipeline', value: '173', meta: '↑ 8 from last week' },
-        { label: 'In training', value: '39', meta: '4 lanes + TB' },
-        { label: 'Active hires', value: '437', meta: '82% of total' },
+        { label: 'In pipeline', value: '173', meta: '↑ 8 from last week', segment: 'ph:all' },
+        { label: 'In training', value: '39', meta: '4 lanes + TB', segment: 'ph:training' },
+        { label: 'Active hires', value: '437', meta: '82% of total', segment: 'ph:active' },
         { label: 'Avg grade', value: 'B-', meta: '23 stars / 7 fails', color: 'var(--blue)' },
       ]}
       pipeline={[
-        { num: 113, label: 'Typeform' },
-        { num: 30, label: 'Passed' },
-        { num: 21, label: 'Pending' },
-        { num: 21, label: 'Scheduled' },
-        { num: 39, label: 'Training' },
-        { num: 437, label: 'Active' },
+        { num: 113, label: 'Typeform', segment: 'ph:typeform' },
+        { num: 30, label: 'Passed', segment: 'ph:passed' },
+        { num: 21, label: 'Pending', segment: 'ph:pending' },
+        { num: 21, label: 'Scheduled', segment: 'ph:scheduled' },
+        { num: 39, label: 'Training', segment: 'ph:training' },
+        { num: 437, label: 'Active', segment: 'ph:active' },
       ]}
       gradeDistribution={[
         { grade: 'A', count: 23 },
