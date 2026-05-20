@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { uiBucket, type CanonicalStage } from '@/lib/stages'
+import { tierDisplay } from '@/lib/candidates'
+import CandidateLink from '@/components/CandidateLink'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,9 +16,6 @@ type Row = {
   monday_updated_at: string | null
   last_synced_at: string
 }
-
-const gradeColors: Record<string, string> = { A: '#4ade80', B: '#60a5fa', C: '#fde047', D: '#fb923c', F: '#ef4444' }
-const gradeBg: Record<string, string> = { A: 'rgba(74,222,128,0.15)', B: 'rgba(96,165,250,0.15)', C: 'rgba(253,224,71,0.15)', D: 'rgba(251,146,60,0.15)', F: 'rgba(239,68,68,0.18)' }
 
 async function fetchCandidates(): Promise<{ rows: Row[]; lastSyncedAt: string | null } | { error: string }> {
   try {
@@ -36,24 +35,15 @@ async function fetchCandidates(): Promise<{ rows: Row[]; lastSyncedAt: string | 
 }
 
 function tierBadge(tier: string | null) {
-  if (!tier) return <span style={{ fontSize: 11, color: 'var(--text-4)' }}>—</span>
-  const upper = tier.toUpperCase()
-  const known = ['A', 'B', 'C', 'D', 'F'].includes(upper)
-  if (known) {
-    return (
-      <div style={{
-        display: 'inline-flex', width: 24, height: 24, borderRadius: 5,
-        alignItems: 'center', justifyContent: 'center',
-        fontWeight: 700, fontSize: 11, fontFamily: 'monospace',
-        background: gradeBg[upper], color: gradeColors[upper],
-      }}>{upper}</div>
-    )
-  }
+  const d = tierDisplay(tier)
+  if (!d) return <span style={{ fontSize: 11, color: 'var(--text-4)' }}>—</span>
   return (
-    <span style={{
-      fontSize: 10.5, padding: '2px 7px', borderRadius: 4, fontWeight: 500,
-      background: 'var(--surface-3)', color: 'var(--text-2)',
-    }}>{tier}</span>
+    <div style={{
+      display: 'inline-flex', padding: '3px 8px', borderRadius: 5,
+      alignItems: 'center', justifyContent: 'center',
+      fontWeight: 700, fontSize: 11, fontFamily: 'monospace',
+      background: d.bg, color: d.color,
+    }}>{d.label}</div>
   )
 }
 

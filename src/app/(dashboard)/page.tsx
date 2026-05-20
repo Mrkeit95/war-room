@@ -2,21 +2,109 @@ import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
 import Reminders from '@/components/Reminders'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
-import type { Region } from '@/lib/candidates'
+import { tierDisplay, type Region } from '@/lib/candidates'
 import { getDashboardStats, getLastSyncedAt } from '@/lib/db'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
+
+type CandidateSummary = {
+  id: string
+  name: string
+  tier: string | null
+  region: string
+  current_group_title: string | null
+  current_stage: string
+  assigned_manager: string | null
+  monday_updated_at: string | null
+}
+
+async function fetchTopPerformers(): Promise<CandidateSummary[]> {
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('candidates')
+    .select('id, name, tier, region, current_group_title, current_stage, assigned_manager, monday_updated_at')
+    .in('tier', ['A', 'TIER 1', 'EU 1'])
+    .neq('current_stage', 'offboarded')
+    .order('monday_updated_at', { ascending: false, nullsFirst: false })
+    .limit(5)
+  return (data ?? []) as CandidateSummary[]
+}
+
+async function fetchRecentActivity(): Promise<CandidateSummary[]> {
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('candidates')
+    .select('id, name, tier, region, current_group_title, current_stage, assigned_manager, monday_updated_at')
+    .neq('current_stage', 'offboarded')
+    .order('monday_updated_at', { ascending: false, nullsFirst: false })
+    .limit(10)
+  return (data ?? []) as CandidateSummary[]
+}
+
+async function fetchRegionTierCounts(): Promise<Record<Region, { tier1: number; tier2: number; risk: number }>> {
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('candidates')
+    .select('region, tier')
+    .neq('current_stage', 'offboarded')
+    .limit(10000)
+  const result: Record<Region, { tier1: number; tier2: number; risk: number }> = {
+    PH: { tier1: 0, tier2: 0, risk: 0 },
+    EU: { tier1: 0, tier2: 0, risk: 0 },
+    SA: { tier1: 0, tier2: 0, risk: 0 },
+    UK: { tier1: 0, tier2: 0, risk: 0 },
+  }
+  for (const row of (data ?? []) as { region: Region; tier: string | null }[]) {
+    const t = row.tier?.toUpperCase()
+    if (!t) continue
+    if (t === 'TIER 1' || t === 'EU 1' || t === 'A') result[row.region].tier1 += 1
+    else if (t === 'TIER 2' || t === 'B') result[row.region].tier2 += 1
+    else if (t === 'TIER 3' || t === 'TIER 4' || t === 'D' || t === 'F') result[row.region].risk += 1
+  }
+  return result
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return ''
+  const ms = Date.now() - new Date(iso).getTime()
+  const mins = Math.round(ms / 60_000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
 
 export default async function DashboardPage() {
   let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null
   let lastSyncedAt: string | null = null
+  let topPerformers: CandidateSummary[] = []
+  let recentActivity: CandidateSummary[] = []
+  let regionTiers: Awaited<ReturnType<typeof fetchRegionTierCounts>> | null = null
   let dataError: string | null = null
   try {
-    stats = await getDashboardStats()
-    lastSyncedAt = await getLastSyncedAt()
+    ;[stats, lastSyncedAt, topPerformers, recentActivity, regionTiers] = await Promise.all([
+      getDashboardStats(),
+      getLastSyncedAt(),
+      fetchTopPerformers(),
+      fetchRecentActivity(),
+      fetchRegionTierCounts(),
+    ])
   } catch (err) {
     dataError = err instanceof Error ? err.message : String(err)
   }
+
+  const phShare = stats ? (() => {
+    const regionTotals = ['PH', 'EU', 'SA', 'UK'].map(r => {
+      const b = stats!.byRegion[r as Region]
+      return b.typeform + b.passed + b.pending + b.scheduled + b.training + b.standby + b.active
+    })
+    const total = regionTotals.reduce((a, b) => a + b, 0)
+    return total > 0 ? Math.round((regionTotals[0] / total) * 100) : 0
+  })() : 0
 
   const fmt = (n: number | undefined) => n === undefined ? '—' : n.toLocaleString()
   const heroCards = [
@@ -65,12 +153,23 @@ export default async function DashboardPage() {
       {/* Department cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
         {[
-          { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', pct: 38, color: 'var(--amber)', grade: 'B-', stars: 6, risk: 4, alerts: 2, slug: 'ph', region: 'PH' as Region },
-          { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', pct: 41, color: 'var(--green)', grade: 'B+', stars: 5, risk: 1, alerts: 1, slug: 'eu', region: 'EU' as Region },
-          { flag: '🇧🇷', name: 'South America', manager: 'Sebastien', pct: 35, color: 'var(--amber)', grade: 'C+', stars: 2, risk: 2, alerts: 1, slug: 'sa', region: 'SA' as Region },
-          { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', pct: 22, color: 'var(--red)', grade: 'C', stars: 1, risk: 2, alerts: 2, slug: 'uk', region: 'UK' as Region },
+          { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', color: 'var(--amber)', slug: 'ph', region: 'PH' as Region },
+          { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', color: 'var(--green)', slug: 'eu', region: 'EU' as Region },
+          { flag: '🇧🇷', name: 'South America', manager: 'Sebastien', color: 'var(--amber)', slug: 'sa', region: 'SA' as Region },
+          { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', color: 'var(--red)', slug: 'uk', region: 'UK' as Region },
         ].map((dept) => {
           const phase = getRegionPhase(dept.region)
+          const buckets = stats?.byRegion[dept.region]
+          const inPipeline = buckets ? buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby + buckets.active : 0
+          const activeCount = buckets?.active ?? 0
+          const trainingCount = buckets?.training ?? 0
+          const tier1 = regionTiers?.[dept.region].tier1 ?? 0
+          const risk = regionTiers?.[dept.region].risk ?? 0
+
+          // Region's share of all in-pipeline (for the progress bar)
+          const allInPipeline = stats?.inPipeline ?? 0
+          const sharePct = allInPipeline > 0 ? Math.round((inPipeline / allInPipeline) * 100) : 0
+
           return (
           <Link key={dept.name} href={`/departments/${dept.slug}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
             <div style={{
@@ -90,17 +189,17 @@ export default async function DashboardPage() {
               )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>{dept.manager}</div>
-            <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, color: dept.color, marginBottom: 4 }}>{dept.pct}%</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>conversion rate</div>
+            <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, marginBottom: 4 }}>{inPipeline.toLocaleString()}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>in pipeline · {sharePct}% of total</div>
             <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
-              <div style={{ height: '100%', borderRadius: 2, background: dept.color, width: `${dept.pct}%` }} />
+              <div style={{ height: '100%', borderRadius: 2, background: dept.color, width: `${sharePct}%` }} />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px', fontSize: 12 }}>
               {[
-                { label: 'Avg grade', value: dept.grade },
-                { label: 'Stars', value: dept.stars, up: true },
-                { label: 'At risk', value: dept.risk, down: true },
-                { label: 'Alerts', value: dept.alerts },
+                { label: 'Active', value: activeCount.toLocaleString() },
+                { label: 'Training', value: trainingCount.toLocaleString() },
+                { label: 'Tier 1', value: tier1.toLocaleString(), up: true },
+                { label: 'At risk', value: risk.toLocaleString(), down: risk > 0 },
               ].map(stat => (
                 <div key={stat.label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-3)' }}>{stat.label}</span>
@@ -117,83 +216,53 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {/* Two column: action feed + side panels */}
+      {/* Two column: recent activity + side panels */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-        {/* Action feed */}
+        {/* Recent activity */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Today · What needs you</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)' }}>13 items</div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Recent activity</div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-4)' }}>most recently updated in Monday</div>
           </div>
-
-          {/* Critical items */}
-          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', margin: '0 0 10px', fontWeight: 500 }}>Critical</div>
-          {[
-            { title: 'Follow up with Noah — 4 typeforms untouched for 5+ days', meta: 'UK · Threshold is 48hr' },
-            { title: 'Sebastien — 3 candidates in Pending Interview > 4 days', meta: 'SA · Stage expected 2 days' },
-            { title: '3 trainees graded D or below trending down — likely fails', meta: 'PH Lane B · EU W1 · UK W1' },
-          ].map((item) => (
-            <div key={item.title} style={{
-              background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: '14px 16px', marginBottom: 8,
-              display: 'flex', gap: 14, position: 'relative',
-              borderLeft: '2px solid var(--red)',
-            }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>{item.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.meta}</div>
-              </div>
-              <span style={{
-                fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-                padding: '3px 8px', borderRadius: 5, fontWeight: 500,
-                background: 'rgba(239,68,68,0.10)', color: 'var(--red)',
-                whiteSpace: 'nowrap', alignSelf: 'flex-start',
-              }}>Critical</span>
+          {recentActivity.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic', padding: '10px 0' }}>No activity to show yet.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {recentActivity.map(c => {
+                const tier = tierDisplay(c.tier)
+                const stage = c.current_group_title ?? c.current_stage.replace(/_/g, ' ')
+                return (
+                  <CandidateLink key={c.id} id={c.id} block>
+                    <div style={{
+                      background: 'var(--surface-2)', border: '1px solid var(--border)',
+                      borderRadius: 10, padding: '12px 16px',
+                      display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
+                    }}>
+                      {tier ? (
+                        <div style={{
+                          width: 36, height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontWeight: 700, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
+                          background: tier.bg, color: tier.color,
+                        }}>{tier.label}</div>
+                      ) : (
+                        <div style={{ width: 36, height: 24, borderRadius: 5, background: 'var(--surface-3)', flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                        <div style={{ fontSize: 11.5, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
+                          <span style={{ padding: '1px 5px', borderRadius: 3, background: 'var(--surface-3)', fontSize: 10 }}>{c.region}</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {stage}{c.assigned_manager ? ` · ${c.assigned_manager}` : ''}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', flexShrink: 0 }}>{timeAgo(c.monday_updated_at)}</div>
+                    </div>
+                  </CandidateLink>
+                )
+              })}
             </div>
-          ))}
-
-          {/* Spotlight */}
-          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', margin: '20px 0 10px', fontWeight: 500 }}>Spotlight</div>
-          <div style={{
-            background: 'var(--surface-2)', border: '1px solid var(--border)',
-            borderRadius: 10, padding: '14px 16px', marginBottom: 8,
-            display: 'flex', gap: 14, borderLeft: '2px solid var(--yellow)',
-          }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>5 standout candidates this week — consider fast-track</div>
-              <div style={{ fontSize: 12, color: 'var(--text-3)' }}>A-graded · trending up</div>
-            </div>
-            <span style={{
-              fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-              padding: '3px 8px', borderRadius: 5, fontWeight: 500,
-              background: 'rgba(253,224,71,0.10)', color: 'var(--yellow)',
-              whiteSpace: 'nowrap', alignSelf: 'flex-start',
-            }}>Spotlight</span>
-          </div>
-
-          {/* Check-ins */}
-          <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', margin: '20px 0 10px', fontWeight: 500 }}>Today&apos;s check-ins</div>
-          {[
-            { title: "Apple has 3 interviews today — follow up tonight", meta: 'PH Recruiting · 10am, 1pm, 4pm Manila' },
-            { title: "Aleksandar — Day 3 of training, Ivan slipping", meta: 'EU · Week 1' },
-          ].map((item) => (
-            <div key={item.title} style={{
-              background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 10, padding: '14px 16px', marginBottom: 8,
-              display: 'flex', gap: 14, borderLeft: '2px solid var(--green)',
-            }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 4 }}>{item.title}</div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{item.meta}</div>
-              </div>
-              <span style={{
-                fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em',
-                padding: '3px 8px', borderRadius: 5, fontWeight: 500,
-                background: 'rgba(74,222,128,0.10)', color: 'var(--green)',
-                whiteSpace: 'nowrap', alignSelf: 'flex-start',
-              }}>Check in</span>
-            </div>
-          ))}
+          )}
         </div>
 
         {/* Side panels */}
@@ -207,50 +276,41 @@ export default async function DashboardPage() {
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Top performers</div>
               <Link href="/top-performers" style={{ fontSize: 12, color: 'var(--text-3)', textDecoration: 'none' }}>View all →</Link>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {[
-                { num: 1, id: 'maria-l', name: 'Maria L.', pct: 92 },
-                { num: 2, id: 'anna-g', name: 'Anna G.', pct: 90 },
-                { num: 3, id: 'sofia-m', name: 'Sofia M.', pct: 88 },
-                { num: 4, id: 'bea-m', name: 'Bea M.', pct: 84 },
-                { num: 5, id: 'jenna-k', name: 'Jenna K.', pct: 80 },
-              ].map((p) => (
-                <CandidateLink key={p.id} id={p.id} block>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer' }}>
-                    <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-3)', width: 16, flexShrink: 0 }}>{p.num}</div>
-                    <div style={{ width: 28, height: 28, borderRadius: 6, background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, flexShrink: 0 }}>{p.name[0]}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{p.name}</div>
-                      <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 2, overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: 2, background: 'var(--green)', width: `${p.pct}%` }} />
-                      </div>
-                    </div>
-                    <div style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--green)', width: 56, textAlign: 'right', flexShrink: 0 }}>A · ↑</div>
-                  </div>
-                </CandidateLink>
-              ))}
-            </div>
-          </div>
-
-          {/* Upcoming */}
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Upcoming</div>
-            </div>
-            {[
-              { title: 'Apple interviews · PH', meta: 'Today · 10am, 1pm, 4pm', color: 'var(--yellow)' },
-              { title: 'Weekly call · Aleksandar', meta: 'Today · 3pm', color: 'var(--green)' },
-              { title: 'PH Lane B Week 1 ends', meta: 'Fri May 22', color: 'var(--red)' },
-              { title: 'EU Week 1 ends', meta: 'Sun May 24', color: 'var(--green)' },
-            ].map((item) => (
-              <div key={item.title} style={{ display: 'flex', gap: 12, padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
-                <div style={{ width: 3, borderRadius: 1.5, flexShrink: 0, background: item.color }} />
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2 }}>{item.title}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{item.meta}</div>
-                </div>
+            {topPerformers.length === 0 ? (
+              <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic', padding: '6px 0' }}>
+                No Tier 1 candidates currently in the pipeline.
               </div>
-            ))}
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {topPerformers.map((p, i) => {
+                  const tier = tierDisplay(p.tier)
+                  const stage = p.current_group_title ?? p.current_stage.replace(/_/g, ' ')
+                  return (
+                    <CandidateLink key={p.id} id={p.id} block>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                        <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-3)', width: 16, flexShrink: 0 }}>{i + 1}</div>
+                        {tier ? (
+                          <div style={{
+                            width: 32, height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontWeight: 700, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
+                            background: tier.bg, color: tier.color,
+                          }}>{tier.label}</div>
+                        ) : (
+                          <div style={{ width: 32, height: 24, borderRadius: 5, background: 'var(--surface-3)', flexShrink: 0 }} />
+                        )}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ padding: '1px 4px', borderRadius: 3, background: 'var(--surface-3)', fontSize: 10, marginRight: 5 }}>{p.region}</span>
+                            {stage}
+                          </div>
+                        </div>
+                      </div>
+                    </CandidateLink>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Source mix */}
@@ -259,10 +319,19 @@ export default async function DashboardPage() {
               <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Source mix · PH share</div>
               <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Target 25%</div>
             </div>
-            <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-0.025em', color: 'var(--red)', lineHeight: 1, marginBottom: 6 }}>82%</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>57 points above target</div>
+            <div style={{
+              fontSize: 36, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, marginBottom: 6,
+              color: phShare > 50 ? 'var(--red)' : phShare > 30 ? 'var(--amber)' : 'var(--green)',
+            }}>{phShare}%</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>
+              {phShare > 25 ? `${phShare - 25} points above target` : phShare < 25 ? `${25 - phShare} points below target` : 'on target'}
+            </div>
             <div style={{ height: 6, background: 'var(--surface-3)', borderRadius: 3, overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 3, background: 'var(--red)', width: '82%' }} />
+              <div style={{
+                height: '100%', borderRadius: 3,
+                background: phShare > 50 ? 'var(--red)' : phShare > 30 ? 'var(--amber)' : 'var(--green)',
+                width: `${Math.min(100, phShare)}%`,
+              }} />
             </div>
           </div>
         </div>
