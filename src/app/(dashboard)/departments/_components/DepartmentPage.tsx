@@ -1,4 +1,6 @@
 import SegmentLink from '@/components/SegmentLink'
+import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
+import type { Region } from '@/lib/candidates'
 
 const gradeColors: Record<string, string> = { A: '#4ade80', B: '#60a5fa', C: '#fde047', D: '#fb923c', F: '#ef4444' }
 const gradeBg: Record<string, string> = { A: 'rgba(74,222,128,0.15)', B: 'rgba(96,165,250,0.15)', C: 'rgba(253,224,71,0.15)', D: 'rgba(251,146,60,0.15)', F: 'rgba(239,68,68,0.18)' }
@@ -21,13 +23,29 @@ type Props = {
 }
 
 export default function DepartmentPage({ flag, name, regionCode, subtitle, conversion, kpis, pipeline, gradeDistribution, lanes }: Props) {
+  const phase = getRegionPhase(regionCode.toUpperCase() as Region)
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28 }}>
         <div>
-          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>
-            <span style={{ marginRight: 10 }}>{flag}</span>{name}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6, flexWrap: 'wrap' }}>
+            <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em' }}>
+              <span style={{ marginRight: 10 }}>{flag}</span>{name}
+            </h1>
+            {phase && (
+              <span style={{
+                fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 600,
+                padding: '4px 10px', borderRadius: 6,
+                background: phaseBg(phase), color: phaseColor(phase),
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 11, height: 11 }}>
+                  <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/>
+                </svg>
+                {phaseLabel(phase)}
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>{subtitle}</div>
         </div>
         <div style={{ textAlign: 'right' }}>

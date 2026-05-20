@@ -115,8 +115,8 @@ export function segmentLabel(filter: SegmentFilter): { title: string; sub: strin
   if (filter.kind === 'all') return { title: headline, sub: 'All candidates in pipeline' }
   if (filter.kind === 'grade') return { title: headline, sub: `Grade ${filter.grade}` }
   const stageLabels: Record<StageKey, string> = {
-    typeform: 'Typeform', passed: 'Passed', pending: 'Pending Interview',
-    scheduled: 'Scheduled', training: 'In training', standby: 'Standby', active: 'Active hires',
+    typeform: 'Typeform', passed: 'Passed', pending: 'Pending interview',
+    scheduled: 'Scheduled interview', training: 'In training', standby: 'Standby', active: 'Active hires',
   }
   return { title: headline, sub: stageLabels[filter.stage] }
 }

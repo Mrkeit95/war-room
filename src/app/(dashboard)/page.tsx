@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
 import Reminders from '@/components/Reminders'
+import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
+import type { Region } from '@/lib/candidates'
 
 export default function DashboardPage() {
   return (
@@ -9,11 +11,11 @@ export default function DashboardPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
         {[
           { label: 'In pipeline', value: '487', meta: 'across 4 regions', delta: '↑ 12', pct: 78, color: 'var(--green)', href: '/pipeline' },
-          { label: 'Interviews', value: '34', meta: '8 today', delta: '+3 stuck', pct: 64, color: 'var(--yellow)', deltaColor: 'var(--text-3)', href: '/calendar' },
+          { label: 'Interviews', value: '34', meta: '8 today', delta: '+3 stuck', pct: 64, color: 'var(--yellow)', deltaColor: 'var(--text-3)', href: '/?interviews=1' },
           { label: 'In training', value: '68', meta: '6 lanes', delta: '2 ending Fri', pct: 85, color: 'var(--green)', deltaColor: 'var(--text-3)', href: '/pipeline' },
           { label: 'Active hires', value: '437', meta: '+3 this week', delta: '↑ 0.7%', pct: 92, color: 'var(--green)', href: '/pipeline' },
         ].map((card) => (
-          <Link key={card.label} href={card.href} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
+          <Link key={card.label} href={card.href} scroll={!card.href.startsWith('/?')} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
             <div style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 14, padding: '22px 24px', cursor: 'pointer',
@@ -37,18 +39,29 @@ export default function DashboardPage() {
       {/* Department cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
         {[
-          { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', pct: 38, color: 'var(--amber)', grade: 'B-', stars: 6, risk: 4, alerts: 2, slug: 'ph' },
-          { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', pct: 41, color: 'var(--green)', grade: 'B+', stars: 5, risk: 1, alerts: 1, slug: 'eu' },
-          { flag: '🇧🇷', name: 'South America', manager: 'Sebastien', pct: 35, color: 'var(--amber)', grade: 'C+', stars: 2, risk: 2, alerts: 1, slug: 'sa' },
-          { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', pct: 22, color: 'var(--red)', grade: 'C', stars: 1, risk: 2, alerts: 2, slug: 'uk' },
-        ].map((dept) => (
+          { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', pct: 38, color: 'var(--amber)', grade: 'B-', stars: 6, risk: 4, alerts: 2, slug: 'ph', region: 'PH' as Region },
+          { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', pct: 41, color: 'var(--green)', grade: 'B+', stars: 5, risk: 1, alerts: 1, slug: 'eu', region: 'EU' as Region },
+          { flag: '🇧🇷', name: 'South America', manager: 'Sebastien', pct: 35, color: 'var(--amber)', grade: 'C+', stars: 2, risk: 2, alerts: 1, slug: 'sa', region: 'SA' as Region },
+          { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', pct: 22, color: 'var(--red)', grade: 'C', stars: 1, risk: 2, alerts: 2, slug: 'uk', region: 'UK' as Region },
+        ].map((dept) => {
+          const phase = getRegionPhase(dept.region)
+          return (
           <Link key={dept.name} href={`/departments/${dept.slug}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
             <div style={{
               background: 'var(--surface)', border: '1px solid var(--border)',
               borderRadius: 14, padding: '20px 22px', cursor: 'pointer',
             }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 6 }}>
-              {dept.flag} {dept.name}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, gap: 8 }}>
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>
+                {dept.flag} {dept.name}
+              </div>
+              {phase && (
+                <span style={{
+                  fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600,
+                  padding: '2px 6px', borderRadius: 4,
+                  background: phaseBg(phase), color: phaseColor(phase),
+                }}>{phaseLabel(phase).replace(' week', '')}</span>
+              )}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>{dept.manager}</div>
             <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, color: dept.color, marginBottom: 4 }}>{dept.pct}%</div>
@@ -74,7 +87,8 @@ export default function DashboardPage() {
             </div>
             </div>
           </Link>
-        ))}
+          )
+        })}
       </div>
 
       {/* Two column: action feed + side panels */}

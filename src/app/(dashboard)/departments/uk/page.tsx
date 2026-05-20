@@ -16,7 +16,7 @@ export default function UnitedKingdomPage() {
       ]}
       pipeline={[
         { num: 3, label: 'Typeform', segment: 'uk:typeform' },
-        { num: 4, label: 'Pending', segment: 'uk:pending' },
+        { num: 4, label: 'Pending interview', segment: 'uk:pending' },
         { num: 1, label: 'W1', segment: 'uk:training' },
         { num: 1, label: 'W2', segment: 'uk:training' },
         { num: 11, label: 'Active', segment: 'uk:active' },

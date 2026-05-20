@@ -16,7 +16,7 @@ export default function SouthAmericaPage() {
       ]}
       pipeline={[
         { num: 8, label: 'Typeform', segment: 'sa:typeform' },
-        { num: 3, label: 'Pending', segment: 'sa:pending' },
+        { num: 3, label: 'Pending interview', segment: 'sa:pending' },
         { num: 18, label: 'W1', segment: 'sa:training' },
         { num: 29, label: 'Active', segment: 'sa:active' },
       ]}

@@ -16,7 +16,7 @@ export default function EuropePage() {
       ]}
       pipeline={[
         { num: 3, label: 'Typeform', segment: 'eu:typeform' },
-        { num: 6, label: 'Pending', segment: 'eu:pending' },
+        { num: 6, label: 'Pending interview', segment: 'eu:pending' },
         { num: 15, label: 'W1 Non-Exp', segment: 'eu:training' },
         { num: 7, label: 'W1 Exp', segment: 'eu:training' },
         { num: 2, label: 'W2', segment: 'eu:training' },

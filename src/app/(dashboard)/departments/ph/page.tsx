@@ -17,8 +17,8 @@ export default function PhilippinesPage() {
       pipeline={[
         { num: 113, label: 'Typeform', segment: 'ph:typeform' },
         { num: 30, label: 'Passed', segment: 'ph:passed' },
-        { num: 21, label: 'Pending', segment: 'ph:pending' },
-        { num: 21, label: 'Scheduled', segment: 'ph:scheduled' },
+        { num: 21, label: 'Pending interview', segment: 'ph:pending' },
+        { num: 21, label: 'Scheduled interview', segment: 'ph:scheduled' },
         { num: 39, label: 'Training', segment: 'ph:training' },
         { num: 437, label: 'Active', segment: 'ph:active' },
       ]}

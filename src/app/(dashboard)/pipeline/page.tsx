@@ -4,8 +4,8 @@ import { CANDIDATES, nameToId, gradeBg, gradeColors } from '@/lib/candidates'
 const STAGES = [
   { key: 'typeform', label: 'Typeform', count: 127 },
   { key: 'passed', label: 'Passed', count: 32 },
-  { key: 'pending', label: 'Pending', count: 16 },
-  { key: 'scheduled', label: 'Scheduled', count: 8 },
+  { key: 'pending', label: 'Pending interview', count: 16 },
+  { key: 'scheduled', label: 'Scheduled interview', count: 8 },
   { key: 'training', label: 'Training', count: 68 },
   { key: 'standby', label: 'Standby', count: 53 },
   { key: 'active', label: 'Active', count: 437 },
