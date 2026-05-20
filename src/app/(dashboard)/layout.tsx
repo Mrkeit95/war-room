@@ -1,5 +1,7 @@
+import { Suspense } from 'react'
 import Sidebar from '@/components/Sidebar'
 import Topbar from '@/components/Topbar'
+import CandidateModal from '@/components/CandidateModal'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -11,6 +13,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </main>
       </div>
+      <Suspense fallback={null}>
+        <CandidateModal />
+      </Suspense>
     </div>
   )
 }
