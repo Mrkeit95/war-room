@@ -1,3 +1,5 @@
+import BriefingReminders from '@/components/BriefingReminders'
+
 export default function BriefingPage() {
   const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   return (
@@ -9,6 +11,8 @@ export default function BriefingPage() {
           Overnight: 3 new typeforms arrived, 2 candidates moved to active, 1 cohort approaches graduation. UK needs your attention today — Noah has been quiet.
         </div>
       </div>
+
+      <BriefingReminders />
 
       {[
         {

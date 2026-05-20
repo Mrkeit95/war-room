@@ -1,29 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-
-const STORAGE_KEY = 'war-room.reminders'
-
-type Reminder = {
-  id: string
-  text: string
-  done: boolean
-  createdAt: number
-}
-
-function load(): Reminder[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch { return [] }
-}
-
-function save(items: Reminder[]) {
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items)) } catch {}
-}
+import { useEffect, useMemo, useState } from 'react'
+import {
+  formatDueLabel,
+  isOverdue,
+  loadReminders,
+  parseDueDate,
+  saveReminders,
+  type Reminder,
+} from '@/lib/reminders'
 
 export default function Reminders() {
   const [items, setItems] = useState<Reminder[]>([])
@@ -31,32 +16,41 @@ export default function Reminders() {
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    setItems(load())
+    setItems(loadReminders())
     setHydrated(true)
   }, [])
 
+  const parsed = useMemo(() => parseDueDate(draft), [draft])
+
   const add = () => {
-    const text = draft.trim()
-    if (!text) return
-    const next = [
-      { id: crypto.randomUUID(), text, done: false, createdAt: Date.now() },
+    const trimmed = draft.trim()
+    if (!trimmed) return
+    const text = parsed ? parsed.cleaned || trimmed : trimmed
+    const next: Reminder[] = [
+      {
+        id: crypto.randomUUID(),
+        text,
+        done: false,
+        createdAt: Date.now(),
+        dueDate: parsed?.dueDate,
+      },
       ...items,
     ]
     setItems(next)
-    save(next)
+    saveReminders(next)
     setDraft('')
   }
 
   const toggle = (id: string) => {
     const next = items.map(r => r.id === id ? { ...r, done: !r.done } : r)
     setItems(next)
-    save(next)
+    saveReminders(next)
   }
 
   const remove = (id: string) => {
     const next = items.filter(r => r.id !== id)
     setItems(next)
-    save(next)
+    saveReminders(next)
   }
 
   const open = items.filter(r => !r.done)
@@ -71,24 +65,41 @@ export default function Reminders() {
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
-        <div style={{
-          width: 24, height: 24, borderRadius: 5,
-          background: 'var(--surface-3)', color: 'var(--text-3)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 14, flexShrink: 0,
-        }}>+</div>
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') add() }}
-          placeholder="Add a reminder…"
-          style={{
-            flex: 1, background: 'transparent', border: 'none',
-            color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none',
-          }}
-        />
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            width: 24, height: 24, borderRadius: 5,
+            background: 'var(--surface-3)', color: 'var(--text-3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 14, flexShrink: 0,
+          }}>+</div>
+          <input
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') add() }}
+            placeholder="Add a reminder… try “call Friday”"
+            style={{
+              flex: 1, background: 'transparent', border: 'none',
+              color: 'var(--text)', fontSize: 13, fontFamily: 'inherit', outline: 'none',
+            }}
+          />
+        </div>
+        {parsed && (
+          <div style={{ marginLeft: 32, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              fontSize: 10.5, padding: '2px 7px', borderRadius: 4, fontWeight: 500,
+              background: 'rgba(96,165,250,0.10)', color: 'var(--blue)',
+            }}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10 }}>
+                <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/>
+              </svg>
+              Due {formatDueLabel(parsed.dueDate)}
+            </span>
+            <span style={{ fontSize: 10.5, color: 'var(--text-4)' }}>from “{parsed.matchedText}”</span>
+          </div>
+        )}
       </div>
 
       {!hydrated ? null : items.length === 0 ? (
@@ -116,6 +127,8 @@ export default function Reminders() {
 
 function Item({ item, onToggle, onRemove }: { item: Reminder; onToggle: () => void; onRemove: () => void }) {
   const [hover, setHover] = useState(false)
+  const overdue = !item.done && isOverdue(item.dueDate)
+  const dueLabel = item.dueDate ? formatDueLabel(item.dueDate) : null
   return (
     <div
       onMouseEnter={() => setHover(true)}
@@ -143,12 +156,20 @@ function Item({ item, onToggle, onRemove }: { item: Reminder; onToggle: () => vo
           </svg>
         )}
       </button>
-      <div style={{
-        flex: 1, fontSize: 13, lineHeight: 1.4,
-        color: item.done ? 'var(--text-4)' : 'var(--text)',
-        textDecoration: item.done ? 'line-through' : 'none',
-        wordBreak: 'break-word', minWidth: 0,
-      }}>{item.text}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 13, lineHeight: 1.4,
+          color: item.done ? 'var(--text-4)' : 'var(--text)',
+          textDecoration: item.done ? 'line-through' : 'none',
+          wordBreak: 'break-word',
+        }}>{item.text}</div>
+        {dueLabel && !item.done && (
+          <div style={{
+            fontSize: 10.5, marginTop: 2, fontWeight: 500,
+            color: overdue ? 'var(--red)' : dueLabel === 'Today' ? 'var(--amber)' : 'var(--text-3)',
+          }}>{dueLabel}</div>
+        )}
+      </div>
       {hover && (
         <button
           onClick={onRemove}
