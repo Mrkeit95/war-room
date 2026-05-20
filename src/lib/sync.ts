@@ -1,0 +1,160 @@
+/**
+ * Sync orchestrator: pull all Monday boards → upsert into Supabase candidates,
+ * detect stage transitions, log sync run. Server-only.
+ */
+
+import { createAdminClient } from './supabase/admin'
+import { fetchAllBoards, type ParsedItem } from './monday'
+import { detectTrack, normalizeStage, type CanonicalStage } from './stages'
+
+export type SyncResult = {
+  syncRunId: string
+  candidatesSynced: number
+  transitionsRecorded: number
+  durationMs: number
+  warnings: string[]
+}
+
+export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual'): Promise<SyncResult> {
+  const supabase = createAdminClient()
+  const startedAt = new Date()
+  const warnings: string[] = []
+
+  // Log the start of the run
+  const { data: runRow, error: runErr } = await supabase
+    .from('sync_runs')
+    .insert({ status: 'running', triggered_by: triggeredBy })
+    .select('id')
+    .single()
+  if (runErr) throw new Error(`Failed to create sync_run: ${runErr.message}`)
+  const syncRunId = runRow.id as string
+
+  try {
+    const boards = await fetchAllBoards()
+
+    // Snapshot existing candidates' current_stage so we can detect transitions
+    const { data: existing, error: existErr } = await supabase
+      .from('candidates')
+      .select('id, monday_item_id, current_stage')
+    if (existErr) throw new Error(`Read existing failed: ${existErr.message}`)
+
+    const prevByMondayId = new Map<string, { id: string; current_stage: string }>()
+    for (const c of existing ?? []) prevByMondayId.set(c.monday_item_id, c as { id: string; current_stage: string })
+
+    const transitions: { candidate_id: string; from_stage: string | null; to_stage: string }[] = []
+    const rowsToUpsert: Record<string, unknown>[] = []
+
+    let totalParsed = 0
+    let skipped = 0
+
+    for (const board of boards) {
+      for (const item of board.items) {
+        totalParsed += 1
+        const stage = normalizeStage(item.group_title)
+        if (!stage) {
+          // Unknown group — log a warning once per distinct title
+          const msg = `Unknown Monday group "${item.group_title}" on board ${board.boardId}`
+          if (!warnings.includes(msg)) warnings.push(msg)
+          skipped += 1
+          continue
+        }
+
+        const track = detectTrack(stage, item.group_title)
+        rowsToUpsert.push(buildUpsertRow(item, stage, track))
+      }
+    }
+
+    // Chunked upsert — Supabase limit is conservative; 500 at a time
+    const CHUNK = 500
+    for (let i = 0; i < rowsToUpsert.length; i += CHUNK) {
+      const slice = rowsToUpsert.slice(i, i + CHUNK)
+      const { error: upsertErr } = await supabase
+        .from('candidates')
+        .upsert(slice, { onConflict: 'monday_item_id' })
+      if (upsertErr) throw new Error(`Upsert failed at offset ${i}: ${upsertErr.message}`)
+    }
+
+    // Read back to map monday_item_id → uuid for transitions we want to record
+    const { data: afterRows, error: afterErr } = await supabase
+      .from('candidates')
+      .select('id, monday_item_id, current_stage')
+    if (afterErr) throw new Error(`Read post-upsert failed: ${afterErr.message}`)
+    const afterById = new Map<string, { id: string; current_stage: string }>()
+    for (const c of afterRows ?? []) afterById.set(c.monday_item_id, c as { id: string; current_stage: string })
+
+    // Detect transitions: only for candidates we knew before AND whose stage changed
+    for (const board of boards) {
+      for (const item of board.items) {
+        const prev = prevByMondayId.get(item.monday_item_id)
+        const after = afterById.get(item.monday_item_id)
+        if (!prev || !after) continue
+        if (prev.current_stage !== after.current_stage) {
+          transitions.push({
+            candidate_id: after.id,
+            from_stage: prev.current_stage,
+            to_stage: after.current_stage,
+          })
+        }
+      }
+    }
+
+    if (transitions.length > 0) {
+      const { error: transErr } = await supabase.from('stage_transitions').insert(transitions)
+      if (transErr) throw new Error(`Transition insert failed: ${transErr.message}`)
+    }
+
+    const finishedAt = new Date()
+    await supabase
+      .from('sync_runs')
+      .update({
+        status: 'success',
+        finished_at: finishedAt.toISOString(),
+        candidates_synced: rowsToUpsert.length,
+        transitions_recorded: transitions.length,
+      })
+      .eq('id', syncRunId)
+
+    return {
+      syncRunId,
+      candidatesSynced: rowsToUpsert.length,
+      transitionsRecorded: transitions.length,
+      durationMs: finishedAt.getTime() - startedAt.getTime(),
+      warnings: warnings.slice(0, 50),
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    await supabase
+      .from('sync_runs')
+      .update({
+        status: 'failed',
+        finished_at: new Date().toISOString(),
+        error_message: message,
+      })
+      .eq('id', syncRunId)
+    throw err
+  }
+}
+
+function buildUpsertRow(item: ParsedItem, stage: CanonicalStage, track: 'exp' | 'non_exp' | null): Record<string, unknown> {
+  return {
+    monday_item_id: item.monday_item_id,
+    monday_board_id: item.boardId,
+    region: item.region,
+    name: item.name,
+    current_stage: stage,
+    current_group_title: item.group_title,
+    current_status: item.status_text,
+    tier: item.tier,
+    track,
+    assigned_manager: item.assigned_manager,
+    telegram: item.telegram,
+    phone: item.phone,
+    email: item.email,
+    country: item.country,
+    source: item.source,
+    monday_created_at: item.monday_created_at,
+    monday_updated_at: item.monday_updated_at,
+    last_synced_at: new Date().toISOString(),
+    raw_data: item.raw_data,
+  }
+}
