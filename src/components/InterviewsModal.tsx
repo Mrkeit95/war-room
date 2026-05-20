@@ -1,16 +1,8 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
-import {
-  CANDIDATES,
-  gradeBg,
-  gradeColors,
-  trajectoryColor,
-  trajectoryIcon,
-  type Candidate,
-  type Region,
-} from '@/lib/candidates'
+import { gradeBg, gradeColors, type Region } from '@/lib/candidates'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel, type RegionPhase } from '@/lib/rotation'
 
 const REGIONS: { code: Region; flag: string; name: string }[] = [
@@ -20,6 +12,23 @@ const REGIONS: { code: Region; flag: string; name: string }[] = [
   { code: 'UK', flag: '🇬🇧', name: 'United Kingdom' },
 ]
 
+type ApiCandidate = {
+  id: string
+  name: string
+  region: string
+  current_stage: string
+  current_group_title: string | null
+  tier: string | null
+  assigned_manager: string | null
+}
+
+async function fetchBucket(bucket: 'pending' | 'scheduled'): Promise<ApiCandidate[]> {
+  const r = await fetch(`/api/candidates?bucket=${bucket}&limit=500`)
+  if (!r.ok) throw new Error(`Lookup failed (${r.status})`)
+  const d = await r.json()
+  return d.candidates ?? []
+}
+
 export default function InterviewsModal() {
   const router = useRouter()
   const pathname = usePathname()
@@ -28,12 +37,35 @@ export default function InterviewsModal() {
   const isOpen = params.get('interviews') === '1'
   const candidateOpen = !!params.get('candidate')
 
+  const [pending, setPending] = useState<ApiCandidate[] | null>(null)
+  const [scheduled, setScheduled] = useState<ApiCandidate[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   const close = () => {
     const next = new URLSearchParams(params.toString())
     next.delete('interviews')
     const query = next.toString()
     router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
   }
+
+  useEffect(() => {
+    if (!isOpen || candidateOpen) {
+      setPending(null); setScheduled(null); return
+    }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    Promise.all([fetchBucket('pending'), fetchBucket('scheduled')])
+      .then(([p, s]) => {
+        if (cancelled) return
+        setPending(p); setScheduled(s)
+      })
+      .catch(err => { if (!cancelled) setError(err.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, candidateOpen])
 
   useEffect(() => {
     if (!isOpen || candidateOpen) return
@@ -54,9 +86,12 @@ export default function InterviewsModal() {
   const byRegion = REGIONS.map(r => ({
     ...r,
     phase: getRegionPhase(r.code),
-    pending: Object.values(CANDIDATES).filter(c => c.region === r.code && c.stageKey === 'pending'),
-    scheduled: Object.values(CANDIDATES).filter(c => c.region === r.code && c.stageKey === 'scheduled'),
+    pending: (pending ?? []).filter(c => c.region === r.code),
+    scheduled: (scheduled ?? []).filter(c => c.region === r.code),
   }))
+
+  const totalPending = pending?.length ?? 0
+  const totalScheduled = scheduled?.length ?? 0
 
   return (
     <div
@@ -82,7 +117,9 @@ export default function InterviewsModal() {
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>Interviews by sector</div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-              Pending + scheduled interviews · rotation phase shown per region
+              {loading
+                ? 'Loading…'
+                : `${totalPending} pending · ${totalScheduled} scheduled · rotation phase shown per region`}
             </div>
           </div>
           <button
@@ -102,7 +139,12 @@ export default function InterviewsModal() {
         </div>
 
         <div style={{ padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', gap: 18 }}>
-          {byRegion.map(r => (
+          {error && (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--red)', fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          {!error && byRegion.map(r => (
             <RegionBlock
               key={r.code}
               flag={r.flag}
@@ -110,6 +152,7 @@ export default function InterviewsModal() {
               phase={r.phase}
               pending={r.pending}
               scheduled={r.scheduled}
+              loading={loading}
               onOpenCandidate={openCandidate}
             />
           ))}
@@ -120,14 +163,14 @@ export default function InterviewsModal() {
 }
 
 function RegionBlock({
-  flag, name, phase, pending, scheduled, onOpenCandidate,
+  flag, name, phase, pending, scheduled, loading, onOpenCandidate,
 }: {
   flag: string; name: string; phase: RegionPhase;
-  pending: Candidate[]; scheduled: Candidate[];
+  pending: ApiCandidate[]; scheduled: ApiCandidate[]; loading: boolean;
   onOpenCandidate: (id: string) => void;
 }) {
   const total = pending.length + scheduled.length
-  const isEmpty = total === 0
+  const isEmpty = !loading && total === 0
 
   return (
     <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px' }}>
@@ -143,11 +186,11 @@ function RegionBlock({
           )}
         </div>
         <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>
-          {isEmpty ? '—' : `${pending.length} pending · ${scheduled.length} scheduled`}
+          {loading ? '…' : isEmpty ? '—' : `${pending.length} pending · ${scheduled.length} scheduled`}
         </div>
       </div>
 
-      {!isEmpty && (
+      {!isEmpty && !loading && (
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <Subgroup label="Pending interview" candidates={pending} onOpen={onOpenCandidate} />
           <Subgroup label="Scheduled interview" candidates={scheduled} onOpen={onOpenCandidate} />
@@ -157,7 +200,7 @@ function RegionBlock({
   )
 }
 
-function Subgroup({ label, candidates, onOpen }: { label: string; candidates: Candidate[]; onOpen: (id: string) => void }) {
+function Subgroup({ label, candidates, onOpen }: { label: string; candidates: ApiCandidate[]; onOpen: (id: string) => void }) {
   return (
     <div>
       <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, marginBottom: 8 }}>{label}</div>
@@ -174,7 +217,8 @@ function Subgroup({ label, candidates, onOpen }: { label: string; candidates: Ca
   )
 }
 
-function CandidateRow({ candidate, onClick }: { candidate: Candidate; onClick: () => void }) {
+function CandidateRow({ candidate, onClick }: { candidate: ApiCandidate; onClick: () => void }) {
+  const grade = candidate.tier && /^[A-F]$/i.test(candidate.tier) ? candidate.tier.toUpperCase() : null
   return (
     <div
       onClick={onClick}
@@ -188,26 +232,13 @@ function CandidateRow({ candidate, onClick }: { candidate: Candidate; onClick: (
         width: 22, height: 22, borderRadius: 4,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontWeight: 700, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-        background: candidate.grade ? gradeBg[candidate.grade] : 'var(--surface-3)',
-        color: candidate.grade ? gradeColors[candidate.grade] : 'var(--text-4)',
-      }}>{candidate.grade || '—'}</div>
+        background: grade ? gradeBg[grade] : 'var(--surface-3)',
+        color: grade ? gradeColors[grade] : 'var(--text-4)',
+      }}>{grade || '—'}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candidate.name}</span>
-          {candidate.trajectory && (
-            <span style={{ fontFamily: 'monospace', fontWeight: 600, color: trajectoryColor(candidate.trajectory), fontSize: 11 }}>
-              {trajectoryIcon(candidate.trajectory)}
-            </span>
-          )}
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 1 }}>{candidate.stage}</div>
+        <div style={{ fontSize: 12.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candidate.name}</div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 1 }}>{candidate.assigned_manager ?? '—'}</div>
       </div>
-      {candidate.days > 0 && (
-        <span style={{
-          fontFamily: 'monospace', fontSize: 10, flexShrink: 0,
-          color: candidate.days >= 5 ? 'var(--red)' : candidate.days >= 3 ? 'var(--amber)' : 'var(--green)',
-        }}>{candidate.days}d</span>
-      )}
     </div>
   )
 }

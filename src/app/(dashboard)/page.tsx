@@ -3,18 +3,44 @@ import CandidateLink from '@/components/CandidateLink'
 import Reminders from '@/components/Reminders'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
 import type { Region } from '@/lib/candidates'
+import { getDashboardStats, getLastSyncedAt } from '@/lib/db'
 
-export default function DashboardPage() {
+export const dynamic = 'force-dynamic'
+
+export default async function DashboardPage() {
+  let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null
+  let lastSyncedAt: string | null = null
+  let dataError: string | null = null
+  try {
+    stats = await getDashboardStats()
+    lastSyncedAt = await getLastSyncedAt()
+  } catch (err) {
+    dataError = err instanceof Error ? err.message : String(err)
+  }
+
+  const fmt = (n: number | undefined) => n === undefined ? '—' : n.toLocaleString()
+  const heroCards = [
+    { label: 'In pipeline', value: fmt(stats?.inPipeline), meta: 'across 4 regions', delta: '', pct: stats ? Math.min(100, Math.round(stats.inPipeline / 15)) : 78, color: 'var(--green)', href: '/pipeline' },
+    { label: 'Interviews', value: fmt(stats?.interviews), meta: 'pending + scheduled', delta: '', pct: stats ? Math.min(100, Math.round(stats.interviews / 0.6)) : 64, color: 'var(--yellow)', deltaColor: 'var(--text-3)', href: '/?interviews=1' },
+    { label: 'In training', value: fmt(stats?.inTraining), meta: 'across all weeks', delta: '', pct: stats ? Math.min(100, Math.round(stats.inTraining / 2.5)) : 85, color: 'var(--green)', deltaColor: 'var(--text-3)', href: '/pipeline' },
+    { label: 'Active hires', value: fmt(stats?.activeHires), meta: 'active + promoted + PTO', delta: '', pct: stats ? Math.min(100, Math.round(stats.activeHires / 5)) : 92, color: 'var(--green)', href: '/pipeline' },
+  ]
+
   return (
     <div>
+      {dataError && (
+        <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '12px 16px', marginBottom: 14, fontSize: 12, color: 'var(--red)' }}>
+          Couldn&apos;t load live data — showing fallback. ({dataError})
+        </div>
+      )}
+      {!dataError && lastSyncedAt && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace', marginBottom: 10 }}>
+          Last sync {new Date(lastSyncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+        </div>
+      )}
       {/* Hero metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
-        {[
-          { label: 'In pipeline', value: '487', meta: 'across 4 regions', delta: '↑ 12', pct: 78, color: 'var(--green)', href: '/pipeline' },
-          { label: 'Interviews', value: '34', meta: '8 today', delta: '+3 stuck', pct: 64, color: 'var(--yellow)', deltaColor: 'var(--text-3)', href: '/?interviews=1' },
-          { label: 'In training', value: '68', meta: '6 lanes', delta: '2 ending Fri', pct: 85, color: 'var(--green)', deltaColor: 'var(--text-3)', href: '/pipeline' },
-          { label: 'Active hires', value: '437', meta: '+3 this week', delta: '↑ 0.7%', pct: 92, color: 'var(--green)', href: '/pipeline' },
-        ].map((card) => (
+        {heroCards.map((card) => (
           <Link key={card.label} href={card.href} scroll={!card.href.startsWith('/?')} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
             <div style={{
               background: 'var(--surface)', border: '1px solid var(--border)',

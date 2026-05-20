@@ -1,17 +1,32 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
-  filterCandidates,
   gradeBg,
   gradeColors,
   parseSegment,
   segmentLabel,
-  trajectoryColor,
-  trajectoryIcon,
-  type Candidate,
+  type SegmentFilter,
 } from '@/lib/candidates'
+
+type ApiCandidate = {
+  id: string
+  name: string
+  region: string
+  current_stage: string
+  current_group_title: string | null
+  tier: string | null
+  assigned_manager: string | null
+}
+
+function filterToQuery(filter: SegmentFilter): string {
+  const region = filter.region
+  if (filter.kind === 'all') return `region=${region}`
+  if (filter.kind === 'grade') return `region=${region}&grade=${filter.grade}`
+  // stage → bucket name (segment URLs use UI bucket names already)
+  return `region=${region}&bucket=${filter.stage}`
+}
 
 export default function SegmentModal() {
   const router = useRouter()
@@ -20,6 +35,29 @@ export default function SegmentModal() {
 
   const filter = parseSegment(params.get('segment'))
   const candidateOpen = !!params.get('candidate')
+
+  const [candidates, setCandidates] = useState<ApiCandidate[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const filterKey = filter ? JSON.stringify(filter) : null
+
+  useEffect(() => {
+    if (!filter || candidateOpen) { setCandidates(null); return }
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/candidates?${filterToQuery(filter)}&limit=200`)
+      .then(async r => {
+        if (!r.ok) throw new Error(`Lookup failed (${r.status})`)
+        return r.json()
+      })
+      .then(d => { if (!cancelled) setCandidates(d.candidates ?? []) })
+      .catch(err => { if (!cancelled) setError(err.message) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, candidateOpen])
 
   const close = () => router.push(pathname, { scroll: false })
 
@@ -37,7 +75,6 @@ export default function SegmentModal() {
 
   if (!filter || candidateOpen) return null
 
-  const candidates = filterCandidates(filter)
   const { title, sub } = segmentLabel(filter)
   const openCandidate = (id: string) => router.push(`${pathname}?candidate=${id}`, { scroll: false })
 
@@ -65,7 +102,7 @@ export default function SegmentModal() {
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-              {sub} · {candidates.length} {candidates.length === 1 ? 'candidate' : 'candidates'}
+              {sub}{candidates !== null ? ` · ${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}` : ''}
             </div>
           </div>
           <button
@@ -84,26 +121,34 @@ export default function SegmentModal() {
           </button>
         </div>
 
-        <div style={{ padding: candidates.length ? '8px 12px 16px' : '32px 24px' }}>
-          {candidates.length === 0 ? (
-            <div style={{ textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
-              No candidate detail synced yet for this segment.
-              <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 6 }}>
-                Hooks up once Monday.com sync is wired.
-              </div>
+        <div style={{ padding: '12px 12px 16px' }}>
+          {loading && (
+            <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-4)', fontSize: 12 }}>
+              Loading…
             </div>
-          ) : (
-            candidates.map(c => (
-              <Row key={c.id} candidate={c} onOpen={() => openCandidate(c.id)} />
-            ))
           )}
+          {error && !loading && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--red)', fontSize: 12 }}>
+              {error}
+            </div>
+          )}
+          {!loading && !error && candidates !== null && candidates.length === 0 && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              No candidates in this segment.
+            </div>
+          )}
+          {!loading && candidates && candidates.map(c => (
+            <Row key={c.id} candidate={c} onOpen={() => openCandidate(c.id)} />
+          ))}
         </div>
       </div>
     </div>
   )
 }
 
-function Row({ candidate, onOpen }: { candidate: Candidate; onOpen: () => void }) {
+function Row({ candidate, onOpen }: { candidate: ApiCandidate; onOpen: () => void }) {
+  const grade = candidate.tier && /^[A-F]$/i.test(candidate.tier) ? candidate.tier.toUpperCase() : null
+  const stage = candidate.current_group_title ?? candidate.current_stage.replace(/_/g, ' ')
   return (
     <div
       onClick={onOpen}
@@ -118,28 +163,15 @@ function Row({ candidate, onOpen }: { candidate: Candidate; onOpen: () => void }
         width: 28, height: 28, borderRadius: 6,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontWeight: 700, fontSize: 11.5, fontFamily: 'monospace', flexShrink: 0,
-        background: candidate.grade ? gradeBg[candidate.grade] : 'var(--surface-3)',
-        color: candidate.grade ? gradeColors[candidate.grade] : 'var(--text-4)',
-      }}>{candidate.grade || '—'}</div>
+        background: grade ? gradeBg[grade] : 'var(--surface-3)',
+        color: grade ? gradeColors[grade] : 'var(--text-4)',
+      }}>{grade || '—'}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 8 }}>
-          {candidate.name}
-          {candidate.trajectory && (
-            <span style={{ fontFamily: 'monospace', fontWeight: 600, color: trajectoryColor(candidate.trajectory) }}>
-              {trajectoryIcon(candidate.trajectory)}
-            </span>
-          )}
-        </div>
+        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{candidate.name}</div>
         <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>
-          {candidate.stage} · {candidate.manager}
+          {stage}{candidate.assigned_manager ? ` · ${candidate.assigned_manager}` : ''}
         </div>
       </div>
-      {candidate.days > 0 && (
-        <span style={{
-          fontFamily: 'monospace', fontSize: 11, flexShrink: 0,
-          color: candidate.days >= 5 ? 'var(--red)' : candidate.days >= 3 ? 'var(--amber)' : 'var(--green)',
-        }}>{candidate.days}d</span>
-      )}
     </div>
   )
 }
