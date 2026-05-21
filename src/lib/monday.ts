@@ -9,8 +9,7 @@ const API_VERSION = '2024-10'
 export type MondayColumnValue = {
   id: string
   text: string | null
-  value: string | null
-  column: { title: string; type: string }
+  column: { title: string }
 }
 
 export type MondayItem = {
@@ -69,6 +68,9 @@ async function mondayGraphQL<T>(query: string, variables?: Record<string, unknow
   return json.data as T
 }
 
+// Only `text` is queried (not the raw `value` JSON) — `value` is large
+// (doc/file/integration columns) and we only ever read `text`. Keeps the
+// PH board fetch fast.
 const ITEM_FIELDS = `
   id
   name
@@ -78,8 +80,7 @@ const ITEM_FIELDS = `
   column_values {
     id
     text
-    value
-    column { title type }
+    column { title }
   }
 `
 
@@ -90,7 +91,7 @@ const ITEM_FIELDS = `
 export async function fetchAllItems(boardId: string): Promise<MondayItem[]> {
   const items: MondayItem[] = []
   let cursor: string | null = null
-  const limit = 100
+  const limit = 500 // Monday's max page size — keeps the full sync well under Vercel's function timeout
 
   // First page
   const firstQuery = `
@@ -138,14 +139,6 @@ function textOf(cv: MondayColumnValue | undefined): string | null {
   if (!cv) return null
   const t = cv.text
   return t && t.length > 0 ? t : null
-}
-
-function parseDateValue(cv: MondayColumnValue | undefined): string | null {
-  if (!cv || !cv.value) return null
-  try {
-    const v = JSON.parse(cv.value) as { date?: string }
-    return v.date ?? null
-  } catch { return null }
 }
 
 export type ParsedItem = {
@@ -199,11 +192,12 @@ export function parseItem(item: MondayItem, boardId: string, region: RegionCode)
 
 export async function fetchAllBoards(): Promise<{ region: RegionCode; boardId: string; items: ParsedItem[] }[]> {
   const config = getBoardConfig()
-  const results: { region: RegionCode; boardId: string; items: ParsedItem[] }[] = []
-  for (const { region, boardId } of config) {
-    const items = await fetchAllItems(boardId)
-    const parsed = items.map(it => parseItem(it, boardId, region))
-    results.push({ region, boardId, items: parsed })
-  }
-  return results
+  // Fetch all 4 boards in parallel — they're independent
+  return Promise.all(
+    config.map(async ({ region, boardId }) => {
+      const items = await fetchAllItems(boardId)
+      const parsed = items.map(it => parseItem(it, boardId, region))
+      return { region, boardId, items: parsed }
+    })
+  )
 }

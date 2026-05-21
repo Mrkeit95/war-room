@@ -1,0 +1,32 @@
+name: Sync Monday data
+
+# Keeps Supabase fresh by hitting the deployed /api/sync endpoint on a schedule.
+# Works regardless of Vercel plan tier (GitHub-hosted cron, not Vercel cron).
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 minutes (UTC)
+  workflow_dispatch: {}     # allows a manual run from the Actions tab
+
+concurrency:
+  group: monday-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Monday → Supabase sync
+        run: |
+          echo "Triggering sync at $(date -u)"
+          HTTP=$(curl -sS -o /tmp/sync_body.txt -w "%{http_code}" \
+            -X POST "${{ secrets.SYNC_URL }}/api/sync" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --max-time 300)
+          echo "HTTP $HTTP"
+          cat /tmp/sync_body.txt
+          echo ""
+          if [ "$HTTP" != "200" ]; then
+            echo "::error::Sync failed with HTTP $HTTP"
+            exit 1
+          fi

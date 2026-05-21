@@ -12,6 +12,8 @@ export type SyncResult = {
   candidatesSynced: number
   transitionsRecorded: number
   durationMs: number
+  fetchMs: number
+  upsertMs: number
   warnings: string[]
 }
 
@@ -30,7 +32,9 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
   const syncRunId = runRow.id as string
 
   try {
+    const tFetch = Date.now()
     const boards = await fetchAllBoards()
+    const fetchMs = Date.now() - tFetch
 
     // Snapshot existing candidates' current_stage so we can detect transitions
     const { data: existing, error: existErr } = await supabase
@@ -44,57 +48,45 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
     const transitions: { candidate_id: string; from_stage: string | null; to_stage: string }[] = []
     const rowsToUpsert: Record<string, unknown>[] = []
 
-    let totalParsed = 0
-    let skipped = 0
-
     for (const board of boards) {
       for (const item of board.items) {
-        totalParsed += 1
         const stage = normalizeStage(item.group_title)
         if (!stage) {
-          // Unknown group — log a warning once per distinct title
           const msg = `Unknown Monday group "${item.group_title}" on board ${board.boardId}`
           if (!warnings.includes(msg)) warnings.push(msg)
-          skipped += 1
           continue
         }
-
         const track = detectTrack(stage, item.group_title)
         rowsToUpsert.push(buildUpsertRow(item, stage, track))
       }
     }
 
-    // Chunked upsert — Supabase limit is conservative; 500 at a time
+    // Chunked upsert — return ids so we don't need a second full-table read
+    const tUpsert = Date.now()
     const CHUNK = 500
+    const afterById = new Map<string, { id: string; current_stage: string }>()
     for (let i = 0; i < rowsToUpsert.length; i += CHUNK) {
       const slice = rowsToUpsert.slice(i, i + CHUNK)
-      const { error: upsertErr } = await supabase
+      const { data: upserted, error: upsertErr } = await supabase
         .from('candidates')
         .upsert(slice, { onConflict: 'monday_item_id' })
+        .select('id, monday_item_id, current_stage')
       if (upsertErr) throw new Error(`Upsert failed at offset ${i}: ${upsertErr.message}`)
+      for (const c of upserted ?? []) {
+        afterById.set(c.monday_item_id as string, c as { id: string; current_stage: string })
+      }
     }
+    const upsertMs = Date.now() - tUpsert
 
-    // Read back to map monday_item_id → uuid for transitions we want to record
-    const { data: afterRows, error: afterErr } = await supabase
-      .from('candidates')
-      .select('id, monday_item_id, current_stage')
-    if (afterErr) throw new Error(`Read post-upsert failed: ${afterErr.message}`)
-    const afterById = new Map<string, { id: string; current_stage: string }>()
-    for (const c of afterRows ?? []) afterById.set(c.monday_item_id, c as { id: string; current_stage: string })
-
-    // Detect transitions: only for candidates we knew before AND whose stage changed
-    for (const board of boards) {
-      for (const item of board.items) {
-        const prev = prevByMondayId.get(item.monday_item_id)
-        const after = afterById.get(item.monday_item_id)
-        if (!prev || !after) continue
-        if (prev.current_stage !== after.current_stage) {
-          transitions.push({
-            candidate_id: after.id,
-            from_stage: prev.current_stage,
-            to_stage: after.current_stage,
-          })
-        }
+    // Detect transitions: candidates we knew before AND whose stage changed
+    for (const [mondayId, after] of afterById) {
+      const prev = prevByMondayId.get(mondayId)
+      if (prev && prev.current_stage !== after.current_stage) {
+        transitions.push({
+          candidate_id: after.id,
+          from_stage: prev.current_stage,
+          to_stage: after.current_stage,
+        })
       }
     }
 
@@ -119,6 +111,8 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       candidatesSynced: rowsToUpsert.length,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
+      fetchMs,
+      upsertMs,
       warnings: warnings.slice(0, 50),
     }
   } catch (err) {
