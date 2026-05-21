@@ -148,30 +148,31 @@ export function nameToId(name: string): string {
 
 /**
  * Display info for a Monday "Tier" column value.
- * Tiers are not standardized A/B/C/D/F yet — they're strings like "TIER 1", "TBD", "EU 1".
- * Lower tier number = better.
+ * Tier 1 = weakest, Tier 4 = best (see memory/project_tier_scale.md).
+ * Strings like "TIER 1", "EU 1", "TBD".
  */
 export type TierDisplay = { label: string; color: string; bg: string; rank: number | null }
+
+const TIER_PALETTE_LOW_TO_HIGH: { color: string; bg: string }[] = [
+  { color: '#ef4444', bg: 'rgba(239,68,68,0.18)' },    // 1 = weakest → red
+  { color: '#fb923c', bg: 'rgba(251,146,60,0.15)' },   // 2 = below avg → orange
+  { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' },   // 3 = strong → blue
+  { color: '#4ade80', bg: 'rgba(74,222,128,0.15)' },   // 4 = best → green
+]
 
 export function tierDisplay(tier: string | null | undefined): TierDisplay | null {
   if (!tier) return null
   const norm = tier.trim().toUpperCase()
-  // Standard A/B/C/D/F (future, when user moves to formal grading)
+  // A/B/C/D/F (future formal grading — A = best, F = worst, conventional)
   if (['A', 'B', 'C', 'D', 'F'].includes(norm)) {
-    return { label: norm, color: gradeColors[norm], bg: gradeBg[norm], rank: { A: 1, B: 2, C: 3, D: 4, F: 5 }[norm] ?? null }
+    return { label: norm, color: gradeColors[norm], bg: gradeBg[norm], rank: { A: 4, B: 3, C: 2, D: 1, F: 0 }[norm] ?? null }
   }
-  // Numbered tiers ("TIER 1", "TIER 2", ..., "EU 1")
+  // Numbered tiers ("TIER 1", "TIER 2", ..., "EU 1"). Higher number = better.
   const match = norm.match(/(\d+)/)
   if (match) {
     const n = parseInt(match[1], 10)
-    const palette: { color: string; bg: string }[] = [
-      { color: '#4ade80', bg: 'rgba(74,222,128,0.15)' },   // 1 = green
-      { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)' },   // 2 = blue
-      { color: '#fde047', bg: 'rgba(253,224,71,0.15)' },   // 3 = yellow
-      { color: '#fb923c', bg: 'rgba(251,146,60,0.15)' },   // 4 = orange
-      { color: '#ef4444', bg: 'rgba(239,68,68,0.18)' },    // 5+ = red
-    ]
-    const p = palette[Math.min(n - 1, palette.length - 1)]
+    const idx = Math.min(Math.max(n - 1, 0), TIER_PALETTE_LOW_TO_HIGH.length - 1)
+    const p = TIER_PALETTE_LOW_TO_HIGH[idx]
     return { label: `T${n}`, color: p.color, bg: p.bg, rank: n }
   }
   // Anything else (TBD, etc) → neutral
@@ -181,3 +182,7 @@ export function tierDisplay(tier: string | null | undefined): TierDisplay | null
 export function tierRank(tier: string | null | undefined): number | null {
   return tierDisplay(tier)?.rank ?? null
 }
+
+// Canonical groupings — use these everywhere instead of inlining the tier values.
+export const TOP_PERFORMER_TIERS = ['TIER 3', 'TIER 4', 'A', 'B']
+export const AT_RISK_TIERS = ['TIER 1', 'TIER 2', 'EU 1', 'D', 'F']

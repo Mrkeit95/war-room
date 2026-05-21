@@ -2,7 +2,7 @@ import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
 import Reminders from '@/components/Reminders'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
-import { tierDisplay, type Region } from '@/lib/candidates'
+import { tierDisplay, TOP_PERFORMER_TIERS, type Region } from '@/lib/candidates'
 import { getDashboardStats, getLastSyncedAt } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -24,8 +24,9 @@ async function fetchTopPerformers(): Promise<CandidateSummary[]> {
   const { data } = await supabase
     .from('candidates')
     .select('id, name, tier, region, current_group_title, current_stage, assigned_manager, monday_updated_at')
-    .in('tier', ['A', 'TIER 1', 'EU 1'])
+    .in('tier', TOP_PERFORMER_TIERS)
     .neq('current_stage', 'offboarded')
+    .order('tier', { ascending: false })
     .order('monday_updated_at', { ascending: false, nullsFirst: false })
     .limit(5)
   return (data ?? []) as CandidateSummary[]
@@ -42,25 +43,25 @@ async function fetchRecentActivity(): Promise<CandidateSummary[]> {
   return (data ?? []) as CandidateSummary[]
 }
 
-async function fetchRegionTierCounts(): Promise<Record<Region, { tier1: number; tier2: number; risk: number }>> {
+async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number; weak: number }>> {
   const supabase = createAdminClient()
   const { data } = await supabase
     .from('candidates')
     .select('region, tier')
     .neq('current_stage', 'offboarded')
     .limit(10000)
-  const result: Record<Region, { tier1: number; tier2: number; risk: number }> = {
-    PH: { tier1: 0, tier2: 0, risk: 0 },
-    EU: { tier1: 0, tier2: 0, risk: 0 },
-    SA: { tier1: 0, tier2: 0, risk: 0 },
-    UK: { tier1: 0, tier2: 0, risk: 0 },
+  const result: Record<Region, { strong: number; weak: number }> = {
+    PH: { strong: 0, weak: 0 },
+    EU: { strong: 0, weak: 0 },
+    SA: { strong: 0, weak: 0 },
+    UK: { strong: 0, weak: 0 },
   }
+  // Tier 3/4 = strong, Tier 1/2 + EU 1 = weak (see memory/project_tier_scale.md)
   for (const row of (data ?? []) as { region: Region; tier: string | null }[]) {
     const t = row.tier?.toUpperCase()
     if (!t) continue
-    if (t === 'TIER 1' || t === 'EU 1' || t === 'A') result[row.region].tier1 += 1
-    else if (t === 'TIER 2' || t === 'B') result[row.region].tier2 += 1
-    else if (t === 'TIER 3' || t === 'TIER 4' || t === 'D' || t === 'F') result[row.region].risk += 1
+    if (t === 'TIER 3' || t === 'TIER 4' || t === 'A' || t === 'B') result[row.region].strong += 1
+    else if (t === 'TIER 1' || t === 'TIER 2' || t === 'EU 1' || t === 'D' || t === 'F') result[row.region].weak += 1
   }
   return result
 }
@@ -163,8 +164,8 @@ export default async function DashboardPage() {
           const inPipeline = buckets ? buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby + buckets.active : 0
           const activeCount = buckets?.active ?? 0
           const trainingCount = buckets?.training ?? 0
-          const tier1 = regionTiers?.[dept.region].tier1 ?? 0
-          const risk = regionTiers?.[dept.region].risk ?? 0
+          const strong = regionTiers?.[dept.region].strong ?? 0
+          const weak = regionTiers?.[dept.region].weak ?? 0
 
           // Region's share of all in-pipeline (for the progress bar)
           const allInPipeline = stats?.inPipeline ?? 0
@@ -198,8 +199,8 @@ export default async function DashboardPage() {
               {[
                 { label: 'Active', value: activeCount.toLocaleString() },
                 { label: 'Training', value: trainingCount.toLocaleString() },
-                { label: 'Tier 1', value: tier1.toLocaleString(), up: true },
-                { label: 'At risk', value: risk.toLocaleString(), down: risk > 0 },
+                { label: 'Strong (T3–4)', value: strong.toLocaleString(), up: strong > 0 },
+                { label: 'At risk (T1–2)', value: weak.toLocaleString(), down: weak > 0 },
               ].map(stat => (
                 <div key={stat.label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-3)' }}>{stat.label}</span>
@@ -278,7 +279,7 @@ export default async function DashboardPage() {
             </div>
             {topPerformers.length === 0 ? (
               <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic', padding: '6px 0' }}>
-                No Tier 1 candidates currently in the pipeline.
+                No Tier 3 or Tier 4 candidates currently in the pipeline.
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

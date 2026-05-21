@@ -1,10 +1,8 @@
 import CandidateLink from '@/components/CandidateLink'
-import { tierDisplay } from '@/lib/candidates'
+import { tierDisplay, TOP_PERFORMER_TIERS } from '@/lib/candidates'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
-
-const TOP_TIERS = ['A', 'TIER 1', 'EU 1', 'TIER 2']
 
 type Row = {
   id: string
@@ -22,9 +20,9 @@ async function fetchTopPerformers(): Promise<{ rows: Row[] } | { error: string }
     const { data, error } = await supabase
       .from('candidates')
       .select('id, name, region, current_stage, current_group_title, tier, assigned_manager')
-      .in('tier', TOP_TIERS)
+      .in('tier', TOP_PERFORMER_TIERS)
       .neq('current_stage', 'offboarded')
-      .order('tier', { ascending: true })
+      .order('tier', { ascending: false })
       .order('monday_updated_at', { ascending: false, nullsFirst: false })
       .limit(100)
     if (error) return { error: error.message }
@@ -41,7 +39,7 @@ export default async function TopPerformersPage() {
     <div>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Top performers</h1>
-        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>Tier 1 + Tier 2 candidates currently in the pipeline</div>
+        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>Tier 3 + Tier 4 candidates currently in the pipeline</div>
       </div>
 
       {'error' in result ? (
@@ -52,7 +50,7 @@ export default async function TopPerformersPage() {
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 32, textAlign: 'center' }}>
           <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No top performers yet</div>
           <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-            No candidates are currently graded Tier 1 or Tier 2 in the pipeline.
+            No candidates are currently graded Tier 3 or Tier 4 in the pipeline.
           </div>
         </div>
       ) : (
