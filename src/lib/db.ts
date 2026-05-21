@@ -5,7 +5,7 @@
 
 import { createAdminClient } from './supabase/admin'
 import { uiBucket, type CanonicalStage, type UiBucket } from './stages'
-import type { Region } from './candidates'
+import { tierRank, type Region } from './candidates'
 
 export type DbCandidate = {
   id: string
@@ -165,6 +165,91 @@ export async function getRegionStats(region: Region) {
   }
 
   return { total, inPipeline, byStage, byBucket, gradeDist }
+}
+
+export type BriefingCandidate = {
+  id: string
+  name: string
+  region: Region
+  tier: string | null
+  current_stage: CanonicalStage
+  current_group_title: string | null
+  assigned_manager: string | null
+}
+
+export type BriefingData = {
+  newLast24h: number
+  interviews: number
+  atRiskTotal: number
+  topTierTotal: number
+  transitions24h: number
+  atRiskInTraining: BriefingCandidate[]
+  topTier: BriefingCandidate[]
+}
+
+/**
+ * Everything the morning briefing needs — derived entirely from synced data.
+ */
+export async function getBriefingData(): Promise<BriefingData> {
+  const supabase = createAdminClient()
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  const { data, error } = await supabase
+    .from('candidates')
+    .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_created_at')
+    .neq('current_stage', 'offboarded')
+    .limit(10000)
+  if (error) throw new Error(`getBriefingData: ${error.message}`)
+
+  let newLast24h = 0
+  let interviews = 0
+  let atRiskTotal = 0
+  let topTierTotal = 0
+  const atRiskInTraining: BriefingCandidate[] = []
+  const topTier: BriefingCandidate[] = []
+
+  for (const row of (data ?? []) as (BriefingCandidate & { monday_created_at: string | null })[]) {
+    if (row.monday_created_at && row.monday_created_at >= since24h) newLast24h += 1
+
+    const bucket = uiBucket(row.current_stage)
+    if (bucket === 'pending' || bucket === 'scheduled') interviews += 1
+
+    const rank = tierRank(row.tier)
+    if (rank !== null && rank <= 2) {
+      atRiskTotal += 1
+      if (bucket === 'training') atRiskInTraining.push(stripCreated(row))
+    } else if (rank !== null && rank >= 3) {
+      topTierTotal += 1
+      if (rank >= 4) topTier.push(stripCreated(row))
+    }
+  }
+
+  const { count: transitions24h } = await supabase
+    .from('stage_transitions')
+    .select('id', { count: 'exact', head: true })
+    .gte('detected_at', since24h)
+
+  return {
+    newLast24h,
+    interviews,
+    atRiskTotal,
+    topTierTotal,
+    transitions24h: transitions24h ?? 0,
+    atRiskInTraining: atRiskInTraining.slice(0, 12),
+    topTier: topTier.slice(0, 12),
+  }
+}
+
+function stripCreated(row: BriefingCandidate & { monday_created_at?: string | null }): BriefingCandidate {
+  return {
+    id: row.id,
+    name: row.name,
+    region: row.region,
+    tier: row.tier,
+    current_stage: row.current_stage,
+    current_group_title: row.current_group_title,
+    assigned_manager: row.assigned_manager,
+  }
 }
 
 export async function getLastSyncedAt(): Promise<string | null> {
