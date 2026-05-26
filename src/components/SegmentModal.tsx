@@ -170,6 +170,45 @@ export default function SegmentModal() {
           </button>
         </div>
 
+        {/* Internal filter bar — only when there's enough to warrant filtering */}
+        {candidates && candidates.length > 5 && (
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8, background: 'var(--surface)', position: 'sticky', top: 67, zIndex: 1 }}>
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or manager…"
+              style={{
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                color: 'var(--text)', padding: '7px 10px', borderRadius: 6,
+                fontSize: 12.5, fontFamily: 'inherit', outline: 'none', width: '100%',
+              }}
+            />
+            {groupCounts.length > 1 && (
+              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, marginRight: 4 }}>Group</span>
+                <TierChip label={`All · ${candidates.length}`} active={groupFilter === null} onClick={() => setGroupFilter(null)} />
+                {groupCounts.map(g => (
+                  <TierChip
+                    key={g.title}
+                    label={`${g.title} · ${g.count}`}
+                    active={groupFilter === g.title}
+                    onClick={() => setGroupFilter(g.title)}
+                  />
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, marginRight: 4 }}>Tier</span>
+              <TierChip label="All" active={tierFilter === null} onClick={() => setTierFilter(null)} />
+              <TierChip label="T1" active={tierFilter === 1} onClick={() => setTierFilter(1)} />
+              <TierChip label="T2" active={tierFilter === 2} onClick={() => setTierFilter(2)} />
+              <TierChip label="T3" active={tierFilter === 3} onClick={() => setTierFilter(3)} />
+              <TierChip label="T4" active={tierFilter === 4} onClick={() => setTierFilter(4)} />
+            </div>
+          </div>
+        )}
+
         <div style={{ padding: '12px 12px 16px' }}>
           {loading && (
             <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--text-4)', fontSize: 12 }}>
@@ -186,7 +225,12 @@ export default function SegmentModal() {
               No candidates in this segment.
             </div>
           )}
-          {!loading && candidates && candidates.map(c => (
+          {!loading && visible && visible.length === 0 && candidates && candidates.length > 0 && (
+            <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
+              No matches for those filters.
+            </div>
+          )}
+          {!loading && visible && visible.map(c => (
             <Row key={c.id} candidate={c} onOpen={() => openCandidate(c.id)} />
           ))}
         </div>
