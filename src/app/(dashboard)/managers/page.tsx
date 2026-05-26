@@ -2,17 +2,39 @@ import Link from 'next/link'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   BOARD_TO_AE,
+  MANAGER_SHIFTS,
   OVERSEERS,
   PH_SECTION_MANAGERS,
-  PH_TRAINER_SHIFTS,
   REGION_SOLE_OWNER,
   displayName,
-  type ShiftBlock,
+  type ShiftConfig,
 } from '@/lib/manager_sections'
 
 export const dynamic = 'force-dynamic'
 
-type ManagerLoad = { name: string; count: number }
+type Group = 'leadership' | 'region-heads' | 'aes' | 'recruiters' | 'trainers'
+
+type Person = {
+  key: string                   // unique id (display name if synthetic, raw Monday name if real)
+  display: string
+  rawName?: string              // Monday assigned_manager string (for filtering candidates)
+  role: string
+  groupTag: Group
+  scope: string[]
+  shift?: ShiftConfig
+  candidateCount?: number
+  candidatesHref?: string
+}
+
+const GROUP_LABELS: Record<Group, string> = {
+  'leadership': 'Leadership',
+  'region-heads': 'Region heads',
+  'aes': 'Account Executives',
+  'recruiters': 'Recruiters',
+  'trainers': 'Trainers',
+}
+
+const RECRUITER_KEYS = new Set(['Pauline', 'Daireen Mae Dagatan', 'apple baez'])
 
 async function fetchManagerCounts(): Promise<Map<string, number>> {
   const supabase = createAdminClient()
@@ -38,21 +60,8 @@ async function fetchManagerCounts(): Promise<Map<string, number>> {
   return counts
 }
 
-export default async function ManagersPage() {
-  let counts: Map<string, number>
-  try {
-    counts = await fetchManagerCounts()
-  } catch (err) {
-    return (
-      <div>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Managers</h1>
-        <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 14, padding: 24, color: 'var(--red)', fontSize: 12.5 }}>
-          Failed to load: {err instanceof Error ? err.message : String(err)}
-        </div>
-      </div>
-    )
-  }
-
+function buildPeople(counts: Map<string, number>): Person[] {
+  const people: Person[] = []
   const sectionsBy = new Map<string, string[]>()
   for (const sec of PH_SECTION_MANAGERS) {
     for (const m of sec.managers) {
@@ -62,182 +71,306 @@ export default async function ManagersPage() {
     }
   }
 
-  // Collect PH operators (trainers + recruiters) — anyone in PH_SECTION_MANAGERS
-  const phOperators = Array.from(sectionsBy.keys())
+  // Leadership / overseers
+  for (const o of OVERSEERS) {
+    people.push({
+      key: o.name,
+      display: o.display,
+      role: o.role,
+      groupTag: 'leadership',
+      scope: o.scope,
+      shift: MANAGER_SHIFTS[o.name],
+      candidateCount: counts.get(o.name),
+    })
+  }
 
-  // Recruiters = run TYPEFORM / SCHEDULED / etc (the early stages)
-  const recruiterKeys = new Set(['Pauline', 'Daireen Mae Dagatan', 'apple baez'])
-  const phRecruiters = phOperators.filter(n => recruiterKeys.has(n))
-  const phTrainers = phOperators.filter(n => !recruiterKeys.has(n))
+  // Region heads
+  for (const [region, rawName] of Object.entries(REGION_SOLE_OWNER)) {
+    if (!rawName) continue
+    people.push({
+      key: `region-${region}`,
+      display: displayName(rawName),
+      rawName,
+      role: `${region} head · runs the whole region`,
+      groupTag: 'region-heads',
+      scope: [`Every section on ${region} board`],
+      shift: MANAGER_SHIFTS[rawName],
+      candidateCount: counts.get(rawName),
+      candidatesHref: `/candidates?manager=${encodeURIComponent(rawName)}`,
+    })
+  }
+
+  // AEs (per BOARD)
+  for (const [board, ae] of Object.entries(BOARD_TO_AE)) {
+    people.push({
+      key: `ae-${board}`,
+      display: ae,
+      role: `AE · ${board}`,
+      groupTag: 'aes',
+      scope: [board, 'Standby → page assignment'],
+      shift: MANAGER_SHIFTS[ae],
+      candidateCount: counts.get(ae),
+      candidatesHref: `/candidates?board=${encodeURIComponent(board)}`,
+    })
+  }
+
+  // PH Recruiters
+  for (const rawName of Array.from(sectionsBy.keys())) {
+    if (!RECRUITER_KEYS.has(rawName)) continue
+    people.push({
+      key: rawName,
+      display: displayName(rawName),
+      rawName,
+      role: 'PH Recruiting',
+      groupTag: 'recruiters',
+      scope: sectionsBy.get(rawName) ?? [],
+      shift: MANAGER_SHIFTS[rawName],
+      candidateCount: counts.get(rawName),
+      candidatesHref: `/candidates?manager=${encodeURIComponent(rawName)}`,
+    })
+  }
+
+  // PH Trainers
+  for (const rawName of Array.from(sectionsBy.keys())) {
+    if (RECRUITER_KEYS.has(rawName)) continue
+    people.push({
+      key: rawName,
+      display: displayName(rawName),
+      rawName,
+      role: 'PH Training',
+      groupTag: 'trainers',
+      scope: sectionsBy.get(rawName) ?? [],
+      shift: MANAGER_SHIFTS[rawName],
+      candidateCount: counts.get(rawName),
+      candidatesHref: `/candidates?manager=${encodeURIComponent(rawName)}`,
+    })
+  }
+
+  return people
+}
+
+export default async function ManagersPage({ searchParams }: { searchParams: Promise<{ group?: string; q?: string }> }) {
+  const params = await searchParams
+  const filterGroupRaw = params.group?.toLowerCase()
+  const filterGroup: Group | null = (['leadership', 'region-heads', 'aes', 'recruiters', 'trainers'] as Group[]).includes(filterGroupRaw as Group)
+    ? (filterGroupRaw as Group)
+    : null
+  const filterQuery = params.q?.trim().toLowerCase() ?? ''
+
+  let counts: Map<string, number>
+  try {
+    counts = await fetchManagerCounts()
+  } catch (err) {
+    return (
+      <div>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Managers & shifts</h1>
+        <div style={{ background: 'rgba(239,68,68,0.05)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 14, padding: 24, color: 'var(--red)', fontSize: 12.5 }}>
+          Failed to load: {err instanceof Error ? err.message : String(err)}
+        </div>
+      </div>
+    )
+  }
+
+  const allPeople = buildPeople(counts)
+  const filtered = allPeople.filter(p => {
+    if (filterGroup && p.groupTag !== filterGroup) return false
+    if (filterQuery && !p.display.toLowerCase().includes(filterQuery) && !p.role.toLowerCase().includes(filterQuery)) return false
+    return true
+  })
+
+  // Group filtered by groupTag, preserving order
+  const grouped = new Map<Group, Person[]>()
+  for (const p of filtered) {
+    const arr = grouped.get(p.groupTag) ?? []
+    arr.push(p)
+    grouped.set(p.groupTag, arr)
+  }
+
+  const buildFilterHref = (override: { group?: Group | null; q?: string }) => {
+    const next = new URLSearchParams()
+    const g = override.group !== undefined ? override.group : filterGroup
+    const q = override.q !== undefined ? override.q : filterQuery
+    if (g) next.set('group', g)
+    if (q) next.set('q', q)
+    const qs = next.toString()
+    return qs ? `/managers?${qs}` : '/managers'
+  }
 
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Managers</h1>
-        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>Shift schedule + section ownership across the org</div>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Managers & shifts</h1>
+        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+          {filtered.length} {filtered.length === 1 ? 'person' : 'people'} across the org · all times in PHT
+        </div>
       </div>
 
-      {/* Overseers */}
-      <Panel title="Leadership · cross-region oversight" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {OVERSEERS.map((o, i) => (
-            <ManagerRow key={o.name} name={o.display} role={o.role} scope={o.scope} candidateCount={counts.get(o.name)} isLast={i === OVERSEERS.length - 1} />
-          ))}
-        </div>
-      </Panel>
+      {/* Filter chips */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <FilterChips
+          label="Role"
+          current={filterGroup}
+          options={[
+            { label: `All · ${allPeople.length}`, value: null },
+            { label: `Leadership · ${allPeople.filter(p => p.groupTag === 'leadership').length}`, value: 'leadership' },
+            { label: `Region heads · ${allPeople.filter(p => p.groupTag === 'region-heads').length}`, value: 'region-heads' },
+            { label: `AEs · ${allPeople.filter(p => p.groupTag === 'aes').length}`, value: 'aes' },
+            { label: `Recruiters · ${allPeople.filter(p => p.groupTag === 'recruiters').length}`, value: 'recruiters' },
+            { label: `Trainers · ${allPeople.filter(p => p.groupTag === 'trainers').length}`, value: 'trainers' },
+          ]}
+          hrefFor={(v) => buildFilterHref({ group: v })}
+        />
+        <form action="/managers" method="GET" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {filterGroup && <input type="hidden" name="group" value={filterGroup} />}
+          <input
+            type="text"
+            name="q"
+            defaultValue={filterQuery}
+            placeholder="Search name or role…"
+            style={{
+              flex: 1, background: 'var(--surface-2)', border: '1px solid var(--border)',
+              color: 'var(--text)', padding: '7px 10px', borderRadius: 6,
+              fontSize: 12.5, fontFamily: 'inherit', outline: 'none',
+            }}
+          />
+          {filterQuery && (
+            <Link href={buildFilterHref({ q: '' })} style={{ fontSize: 11.5, color: 'var(--text-3)', textDecoration: 'none' }}>Clear ×</Link>
+          )}
+        </form>
+      </div>
 
-      {/* Region heads */}
-      <Panel title="Region heads · sole owners of EU / SA / UK" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {Object.entries(REGION_SOLE_OWNER).map(([region, name], i, arr) => (
-            <ManagerRow
-              key={region}
-              name={displayName(name!)}
-              role={`${region} · everything end-to-end`}
-              scope={[`Runs all sections on ${region} board`]}
-              candidateCount={counts.get(name!)}
-              isLast={i === arr.length - 1}
-              candidatesHref={`/candidates?manager=${encodeURIComponent(name!)}`}
-            />
-          ))}
+      {/* Grouped results */}
+      {filtered.length === 0 ? (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 32, textAlign: 'center' }}>
+          <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No matches</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Try clearing the filter or search query.</div>
         </div>
-      </Panel>
-
-      {/* AEs */}
-      <Panel title="Account Executives · BOARD ownership" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {Object.entries(BOARD_TO_AE).map(([board, ae], i, arr) => (
-            <ManagerRow
-              key={board}
-              name={ae}
-              role={`AE — ${board}`}
-              scope={[board, 'Assigns chatters from standby → pages']}
-              candidateCount={counts.get(ae)}
-              isLast={i === arr.length - 1}
-              candidatesHref={`/candidates?board=${encodeURIComponent(board)}`}
-            />
-          ))}
-        </div>
-      </Panel>
-
-      {/* PH Recruiters */}
-      <Panel title="PH Recruiters · top-of-funnel" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {phRecruiters.map((rawName, i) => (
-            <ManagerRow
-              key={rawName}
-              name={displayName(rawName)}
-              role="Recruiting"
-              scope={sectionsBy.get(rawName) ?? []}
-              candidateCount={counts.get(rawName)}
-              isLast={i === phRecruiters.length - 1}
-              candidatesHref={`/candidates?manager=${encodeURIComponent(rawName)}`}
-            />
-          ))}
-        </div>
-      </Panel>
-
-      {/* PH Trainers with shifts */}
-      <Panel title="PH Trainers · shift schedule" style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginBottom: 14 }}>All times in PHT (Asia/Manila)</div>
-        <div style={{ display: 'flex', flexDirection: 'column' }}>
-          {phTrainers.map((rawName, i) => (
-            <TrainerRow
-              key={rawName}
-              name={displayName(rawName)}
-              rawName={rawName}
-              shift={PH_TRAINER_SHIFTS[rawName]}
-              sections={sectionsBy.get(rawName) ?? []}
-              candidateCount={counts.get(rawName)}
-              isLast={i === phTrainers.length - 1}
-            />
-          ))}
-        </div>
-      </Panel>
+      ) : (
+        Array.from(grouped.entries()).map(([groupKey, people]) => (
+          <Panel key={groupKey} title={`${GROUP_LABELS[groupKey]} · ${people.length}`} style={{ marginBottom: 14 }}>
+            <HeaderRow />
+            {people.map((p, i) => (
+              <PersonRow key={p.key} person={p} isLast={i === people.length - 1} />
+            ))}
+          </Panel>
+        ))
+      )}
     </div>
   )
 }
 
 function Panel({ title, children, style }: { title: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px', ...style }}>
-      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 16 }}>{title}</div>
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', ...style }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 14 }}>{title}</div>
       {children}
     </div>
   )
 }
 
-function ManagerRow({
-  name, role, scope, candidateCount, isLast, candidatesHref,
-}: { name: string; role: string; scope: string[]; candidateCount?: number; isLast: boolean; candidatesHref?: string }) {
-  const content = (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 2fr) auto',
-      alignItems: 'center', gap: 14,
-      padding: '14px 4px',
-      borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      cursor: candidatesHref ? 'pointer' : 'default',
-    }}>
-      <span style={{ fontSize: 14, fontWeight: 500 }}>{name}</span>
-      <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{role}</span>
-      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-        {scope.map(s => (
-          <span key={s} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'var(--surface-3)', color: 'var(--text-2)' }}>{s}</span>
-        ))}
-      </div>
-      {candidateCount !== undefined && candidateCount > 0 ? (
-        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap' }}>{candidateCount.toLocaleString()} candidates</span>
-      ) : <span style={{ fontSize: 11, color: 'var(--text-4)' }}>—</span>}
+const ROW_COLS = 'minmax(0, 1.3fr) minmax(0, 1.2fr) minmax(0, 1.5fr) minmax(0, 1.4fr) auto'
+
+function HeaderRow() {
+  const cell = (label: string, align: 'left' | 'right' = 'left') => (
+    <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, textAlign: align }}>{label}</span>
+  )
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: ROW_COLS, gap: 14, padding: '0 0 10px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+      {cell('Name')}
+      {cell('Role')}
+      {cell('Scope')}
+      {cell('Shift (PHT)')}
+      {cell('Candidates', 'right')}
     </div>
   )
-  return candidatesHref
-    ? <Link href={candidatesHref} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{content}</Link>
+}
+
+function PersonRow({ person, isLast }: { person: Person; isLast: boolean }) {
+  const content = (
+    <div style={{
+      display: 'grid', gridTemplateColumns: ROW_COLS, gap: 14,
+      alignItems: 'center', padding: '13px 0',
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+      cursor: person.candidatesHref ? 'pointer' : 'default',
+    }}>
+      <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{person.display}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{person.role}</span>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+        {person.scope.slice(0, 3).map(s => (
+          <span key={s} style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, background: 'var(--surface-3)', color: 'var(--text-2)' }}>{s}</span>
+        ))}
+        {person.scope.length > 3 && (
+          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, color: 'var(--text-4)' }}>+{person.scope.length - 3}</span>
+        )}
+      </div>
+      <ShiftCell shift={person.shift} />
+      {person.candidateCount !== undefined && person.candidateCount > 0 ? (
+        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{person.candidateCount.toLocaleString()}</span>
+      ) : (
+        <span style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'right' }}>—</span>
+      )}
+    </div>
+  )
+  return person.candidatesHref
+    ? <Link href={person.candidatesHref} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{content}</Link>
     : content
 }
 
-function TrainerRow({
-  name, rawName, shift, sections, candidateCount, isLast,
-}: { name: string; rawName: string; shift?: { label: string; blocks: ShiftBlock[] }; sections: string[]; candidateCount?: number; isLast: boolean }) {
+function ShiftCell({ shift }: { shift?: ShiftConfig }) {
+  if (!shift) {
+    return <span style={{ fontSize: 11.5, color: 'var(--text-4)', fontStyle: 'italic' }}>not configured</span>
+  }
+  // For trainers with many blocks: compact summary; for simple ones: show all
+  const summary = shift.blocks.length === 1
+    ? `${shift.blocks[0].day} · ${shift.blocks[0].start}–${shift.blocks[0].end}`
+    : `${shift.blocks.length} blocks/week`
   return (
-    <div style={{
-      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 2.5fr) auto',
-      alignItems: 'start', gap: 16,
-      padding: '14px 4px',
-      borderBottom: isLast ? 'none' : '1px solid var(--border)',
-    }}>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 4 }}>{name}</div>
-        {shift && (
-          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{shift.label}</div>
-        )}
-        <div style={{ fontSize: 10.5, color: 'var(--text-4)', marginTop: 6 }}>Sections:</div>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-          {sections.map(s => (
-            <span key={s} style={{ fontSize: 9.5, padding: '2px 6px', borderRadius: 3, background: 'var(--surface-3)', color: 'var(--text-2)' }}>{s}</span>
-          ))}
-        </div>
-      </div>
-      <div>
-        {shift ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 2 }}>{shift.label}</div>
+      {shift.blocks.length === 1 ? (
+        <div style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'monospace' }}>{summary}</div>
+      ) : (
+        <details style={{ fontSize: 12, color: 'var(--text)' }}>
+          <summary style={{ cursor: 'pointer', listStyle: 'none', color: 'var(--text-2)', fontFamily: 'monospace', fontSize: 11.5 }}>
+            {summary} ↓
+          </summary>
+          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
             {shift.blocks.map((b, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12.5 }}>
-                <span style={{ width: 64, color: 'var(--text-3)', fontFamily: 'monospace', flexShrink: 0 }}>{b.day}</span>
-                <span style={{ color: 'var(--text)', fontFamily: 'monospace' }}>{b.start} → {b.end} PHT</span>
-                {b.crossesMidnight && <span style={{ fontSize: 9.5, color: 'var(--text-4)' }}>(overnight)</span>}
+              <div key={i} style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-2)' }}>
+                {b.day} {b.start}–{b.end}{b.crossesMidnight ? ' (overnight)' : ''}
               </div>
             ))}
           </div>
-        ) : (
-          <span style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>No shift configured</span>
-        )}
-      </div>
-      <Link
-        href={`/candidates?manager=${encodeURIComponent(rawName)}`}
-        style={{ fontSize: 11.5, color: 'var(--text-3)', textDecoration: 'none', whiteSpace: 'nowrap' }}
-      >
-        {candidateCount !== undefined && candidateCount > 0 ? `${candidateCount} candidates →` : 'view candidates →'}
-      </Link>
+        </details>
+      )}
+    </div>
+  )
+}
+
+function FilterChips({ label, options, current, hrefFor }: {
+  label: string
+  options: { label: string; value: Group | null }[]
+  current: Group | null
+  hrefFor: (value: Group | null) => string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, minWidth: 56 }}>{label}</span>
+      {options.map(o => {
+        const active = current === o.value
+        return (
+          <Link
+            key={o.label}
+            href={hrefFor(o.value)}
+            style={{
+              fontSize: 11.5, padding: '4px 10px', borderRadius: 5, textDecoration: 'none', fontWeight: 500,
+              background: active ? 'var(--surface-2)' : 'transparent',
+              color: active ? 'var(--text)' : 'var(--text-3)',
+              border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+            }}
+          >{o.label}</Link>
+        )
+      })}
     </div>
   )
 }

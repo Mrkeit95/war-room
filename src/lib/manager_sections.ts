@@ -101,10 +101,11 @@ export const REGION_SOLE_OWNER: Partial<Record<Region, string>> = {
   UK: 'noah whall',
 }
 
-/** PH trainer shifts in PHT (converted from EDT +12h). */
+/** Shift schedules across the team (PHT). PH trainer shifts converted from EDT +12h. */
 export type ShiftBlock = { day: string; start: string; end: string; crossesMidnight?: boolean }
+export type ShiftConfig = { label: string; blocks: ShiftBlock[] }
 
-export const PH_TRAINER_SHIFTS: Record<string, { label: string; blocks: ShiftBlock[] }> = {
+export const MANAGER_SHIFTS: Record<string, ShiftConfig> = {
   'Gwyneth Fuentes': {
     label: 'Morning shift',
     blocks: [
@@ -157,7 +158,33 @@ export const PH_TRAINER_SHIFTS: Record<string, { label: string; blocks: ShiftBlo
       { day: 'Mon–Fri', start: '8am', end: '4pm' },
     ],
   },
+  // PH Recruiters
+  'Pauline': {
+    label: 'Recruiting · Day',
+    blocks: [{ day: 'Mon–Fri', start: '11am', end: '7pm' }],
+  },
+  'Daireen Mae Dagatan': {
+    label: 'Recruiting · Day',
+    blocks: [{ day: 'Mon–Fri', start: '11am', end: '7pm' }],
+  },
+  'apple baez': {
+    label: 'Recruiting · Morning',
+    blocks: [{ day: 'Mon–Fri', start: '8am', end: '4pm' }],
+  },
+  // Regional heads
+  'JUAN SEBASTIAN GONZALEZ PEREZ': {
+    label: 'SA head',
+    blocks: [{ day: 'Mon–Fri', start: '8am', end: '4pm' }],
+  },
+  'noah whall': {
+    label: 'UK head',
+    blocks: [{ day: 'Mon–Fri', start: '1pm', end: '9pm' }],
+  },
+  // Aleksandar Simic (EU): shift TBD — left intentionally blank
 }
+
+/** Back-compat alias for callers that expect the old name. */
+export const PH_TRAINER_SHIFTS = MANAGER_SHIFTS
 
 /** Pretty-name overrides for Monday strings that are lowercase / all-caps. */
 export const MANAGER_DISPLAY_NAMES: Record<string, string> = {

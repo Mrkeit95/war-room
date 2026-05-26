@@ -55,7 +55,12 @@ function timeLabel(hours: number): string {
   return `${Math.floor(hours / 24)}d ${hours % 24}h`
 }
 
-export default async function StandbyPage() {
+export default async function StandbyPage({ searchParams }: { searchParams: Promise<{ board?: string }> }) {
+  const params = await searchParams
+  const boardFilterRaw = params.board?.trim().toUpperCase()
+  const VALID_BOARDS = new Set(['BOARD 1', 'BOARD 2', 'BOARD 3', 'TRAINING BOARD', 'NONE'])
+  const boardFilter: string | null = boardFilterRaw && VALID_BOARDS.has(boardFilterRaw) ? boardFilterRaw : null
+
   const result = await fetchStandby()
 
   if ('error' in result) {
@@ -69,43 +74,64 @@ export default async function StandbyPage() {
     )
   }
 
-  const rows = result.rows
+  const allRows = result.rows
     .map(r => ({ row: r, hours: hoursIn(r.current_stage_entered_at, r.monday_updated_at) }))
     .sort((a, b) => b.hours - a.hours)
+
+  // Apply BOARD filter (if any) to the displayed rows
+  const rows = boardFilter
+    ? boardFilter === 'NONE'
+      ? allRows.filter(r => !r.row.board_assignment?.trim())
+      : allRows.filter(r => r.row.board_assignment?.trim().toUpperCase() === boardFilter)
+    : allRows
 
   const noBoardRows = rows.filter(r => !r.row.board_assignment?.trim())
   const noPageRows = rows.filter(r => r.row.board_assignment?.trim() && !r.row.page_assignment?.trim())
   const settled = rows.filter(r => r.row.board_assignment?.trim() && r.row.page_assignment?.trim())
 
-  const criticalCount = noBoardRows.filter(r => r.hours >= 48).length
-  const warningCount = noBoardRows.filter(r => r.hours >= 24 && r.hours < 48).length
+  // Counts always reflect ALL standby (not the current filter) so the BOARD tiles stay informative
+  const allNoBoardCount = allRows.filter(r => !r.row.board_assignment?.trim()).length
+  const criticalCount = allRows.filter(r => !r.row.board_assignment?.trim() && r.hours >= 48).length
+  const warningCount = allRows.filter(r => !r.row.board_assignment?.trim() && r.hours >= 24 && r.hours < 48).length
+
+  const tileHref = (board: string) => boardFilter === board ? '/standby' : `/standby?board=${encodeURIComponent(board)}`
 
   return (
     <div>
       <div style={{ marginBottom: 28 }}>
         <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Standby</h1>
         <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-          {rows.length} chatters in the global ready-pool · cross-region landing zone
+          {allRows.length} chatters in the global ready-pool · cross-region landing zone
+          {boardFilter && (
+            <> · filtered to <span style={{ color: 'var(--text)' }}>{boardFilter === 'NONE' ? 'No BOARD' : boardFilter}</span> · <Link href="/standby" style={{ color: 'var(--text-3)' }}>clear ×</Link></>
+          )}
         </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-        <StatCard label="Total in standby" value={rows.length} />
-        <StatCard label="No BOARD assigned" value={noBoardRows.length} color={noBoardRows.length > 0 ? 'var(--amber)' : 'var(--text)'} />
+        <StatCard label="Total in standby" value={allRows.length} />
+        <StatCard label="No BOARD assigned" value={allNoBoardCount} color={allNoBoardCount > 0 ? 'var(--amber)' : 'var(--text)'} />
         <StatCard label="Critical (48h+)" value={criticalCount} color={criticalCount > 0 ? 'var(--red)' : 'var(--text)'} />
         <StatCard label="Warning (24h+)" value={warningCount} color={warningCount > 0 ? 'var(--amber)' : 'var(--text)'} />
       </div>
 
-      {/* AE board summary */}
-      <Panel title="By BOARD · AE ownership" style={{ marginBottom: 14 }}>
+      {/* AE board summary — tiles filter the lists below inline (no jump to /candidates) */}
+      <Panel title="By BOARD · AE ownership · click to filter" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
           {Object.entries(BOARD_TO_AE).map(([board, ae]) => {
-            const count = rows.filter(r => r.row.board_assignment?.trim().toUpperCase() === board).length
+            const count = allRows.filter(r => r.row.board_assignment?.trim().toUpperCase() === board).length
             return (
-              <BoardTile key={board} board={board} ae={ae} count={count} href={`/candidates?board=${encodeURIComponent(board)}`} />
+              <BoardTile key={board} board={board} ae={ae} count={count} href={tileHref(board)} active={boardFilter === board} />
             )
           })}
-          <BoardTile board="No BOARD yet" ae="(all AEs / Keit)" count={noBoardRows.length} tone="warn" href="/candidates?bucket=standby&board=none" />
+          <BoardTile
+            board="No BOARD yet"
+            ae="(all AEs / Keit)"
+            count={allNoBoardCount}
+            tone="warn"
+            href={tileHref('NONE')}
+            active={boardFilter === 'NONE'}
+          />
         </div>
       </Panel>
 
@@ -131,14 +157,11 @@ export default async function StandbyPage() {
       {settled.length > 0 && (
         <Panel title={`Page + BOARD assigned · ${settled.length} ready`}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {settled.slice(0, 30).map((r, i) => <StandbyRow key={r.row.id} row={r.row} hours={r.hours} isLast={i === Math.min(settled.length, 30) - 1} />)}
-            {settled.length > 30 && (
-              <Link href="/candidates?bucket=standby" style={{
-                fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', padding: '10px 0',
-                fontStyle: 'italic', textDecoration: 'none', display: 'block', marginTop: 4,
-              }}>
-                +{settled.length - 30} more — see full candidates list →
-              </Link>
+            {settled.slice(0, 100).map((r, i) => <StandbyRow key={r.row.id} row={r.row} hours={r.hours} isLast={i === Math.min(settled.length, 100) - 1} />)}
+            {settled.length > 100 && (
+              <div style={{ fontSize: 11.5, color: 'var(--text-4)', textAlign: 'center', padding: '10px 0', fontStyle: 'italic' }}>
+                +{settled.length - 100} more
+              </div>
             )}
           </div>
         </Panel>
@@ -156,10 +179,14 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   )
 }
 
-function BoardTile({ board, ae, count, tone, href }: { board: string; ae: string; count: number; tone?: 'warn'; href?: string }) {
+function BoardTile({ board, ae, count, tone, href, active }: { board: string; ae: string; count: number; tone?: 'warn'; href?: string; active?: boolean }) {
+  const borderColor = active
+    ? 'var(--text-2)'
+    : tone === 'warn' && count > 0 ? 'rgba(251,191,36,0.4)' : 'var(--border)'
   const inner = (
     <div style={{
-      background: 'var(--surface-2)', border: `1px solid ${tone === 'warn' && count > 0 ? 'rgba(251,191,36,0.4)' : 'var(--border)'}`,
+      background: active ? 'var(--surface-3)' : 'var(--surface-2)',
+      border: `1px solid ${borderColor}`,
       borderRadius: 8, padding: '14px 12px',
       cursor: href ? 'pointer' : 'default', height: '100%',
     }}>

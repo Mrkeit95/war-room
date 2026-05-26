@@ -152,16 +152,22 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         ].map((dept) => {
           const phase = getRegionPhase(dept.region)
           const buckets = stats?.byRegion[dept.region]
-          const inPipeline = buckets ? buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby + buckets.active : 0
-          const activeCount = buckets?.active ?? 0
+          // PH excludes cross-region buckets (standby/active hosted on PH board for all regions).
+          // EU/SA/UK count all buckets — their boards aren't cross-region pollutants.
+          const inPipeline = buckets
+            ? dept.region === 'PH'
+              ? buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training
+              : buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby + buckets.active
+            : 0
+          const typeformCount = buckets?.typeform ?? 0
+          const interviewsCount = (buckets?.pending ?? 0) + (buckets?.scheduled ?? 0)
           const trainingCount = buckets?.training ?? 0
-          const strong = regionTiers?.[dept.region].strong ?? 0
-          const weak = regionTiers?.[dept.region].weak ?? 0
-          const offboarded = stats?.offboardedByRegion[dept.region] ?? 0
+          const activeCount = buckets?.active ?? 0
 
-          // Region's share of all in-pipeline (for the progress bar)
+          // Region's share of total in-pipeline across regions (progress bar comparison)
           const allInPipeline = stats?.inPipeline ?? 0
           const sharePct = allInPipeline > 0 ? Math.round((inPipeline / allInPipeline) * 100) : 0
+          const isPH = dept.region === 'PH'
 
           return (
           <Link key={dept.name} href={`/departments/${dept.slug}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
@@ -183,25 +189,18 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>{dept.manager}</div>
             <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, marginBottom: 4 }}>{inPipeline.toLocaleString()}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>in pipeline · {sharePct}% of total · {offboarded.toLocaleString()} offboarded</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>
+              {isPH ? 'PH recruiting + training' : 'in pipeline'} · {sharePct}% of total
+            </div>
             <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
               <div style={{ height: '100%', borderRadius: 2, background: dept.color, width: `${sharePct}%` }} />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 14px', fontSize: 12 }}>
-              {[
-                { label: 'Active', value: activeCount.toLocaleString() },
-                { label: 'Training', value: trainingCount.toLocaleString() },
-                { label: 'Strong (T3–4)', value: strong.toLocaleString(), up: strong > 0 },
-                { label: 'At risk (T1–2)', value: weak.toLocaleString(), down: weak > 0 },
-              ].map(stat => (
-                <div key={stat.label} style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-3)' }}>{stat.label}</span>
-                  <span style={{
-                    fontFamily: 'monospace', fontSize: 11,
-                    color: stat.up ? 'var(--green)' : stat.down ? 'var(--red)' : 'var(--text)',
-                  }}>{stat.value}</span>
-                </div>
-              ))}
+            {/* Mini pipeline breakdown — PH skips Active (cross-region), others include it */}
+            <div style={{ display: 'grid', gridTemplateColumns: isPH ? 'repeat(3, 1fr)' : 'repeat(4, 1fr)', gap: 8, fontSize: 11 }}>
+              <MiniStat label="Typeform" value={typeformCount} />
+              <MiniStat label="Interview" value={interviewsCount} />
+              <MiniStat label="Training" value={trainingCount} />
+              {!isPH && <MiniStat label="Active" value={activeCount} />}
             </div>
             </div>
           </Link>
@@ -367,5 +366,17 @@ function RegionChip({ label, href, active }: { label: string; href: string; acti
       color: active ? 'var(--text)' : 'var(--text-3)',
       border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
     }}>{label}</Link>
+  )
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div style={{
+      background: 'var(--surface-2)', borderRadius: 6, padding: '6px 8px',
+      display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+    }}>
+      <span style={{ fontSize: 9.5, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-4)', fontWeight: 500 }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text)' }}>{value.toLocaleString()}</span>
+    </div>
   )
 }
