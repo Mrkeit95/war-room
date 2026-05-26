@@ -83,14 +83,16 @@ async function getAssignmentsByPage(modelNames: string[]): Promise<AssignmentLoo
   for (const name of modelNames) result[name] = { chatters: new Set(), pod: null, team: null }
 
   for (const row of (data ?? []) as { page_name: string | null; group_title: string | null; chatter_name: string | null; pod: string | null; team: string | null }[]) {
-    const pageName = row.page_name?.toUpperCase() ?? null
     const groupTitle = row.group_title?.toUpperCase() ?? null
+    if (!groupTitle) continue
 
     for (const modelName of modelNames) {
-      const upper = modelName.toUpperCase()
-      const matchesPage = pageName === upper
-      const matchesTitle = !pageName && groupTitle ? groupTitle.includes(upper) : false
-      if (!matchesPage && !matchesTitle) continue
+      const upper = modelName.toUpperCase().trim()
+      if (!upper) continue
+      // Groups can hold multiple pages joined by " | " (e.g. "POD C - T6 LACIE OWENS | HENNA").
+      // A case-insensitive substring match on the full group title catches both single and
+      // combined page groups.
+      if (!groupTitle.includes(upper)) continue
 
       const entry = result[modelName]
       if (row.chatter_name && row.chatter_name.trim()) {

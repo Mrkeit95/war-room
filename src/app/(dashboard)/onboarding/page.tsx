@@ -8,12 +8,20 @@ export const dynamic = 'force-dynamic'
 
 async function getModelDiagnostics() {
   const supabase = createAdminClient()
-  const { count } = await supabase.from('models').select('id', { count: 'exact', head: true })
+  const [modelsCount, assignmentsCount, chatterFilledCount] = await Promise.all([
+    supabase.from('models').select('id', { count: 'exact', head: true }),
+    supabase.from('page_assignments').select('id', { count: 'exact', head: true }),
+    supabase.from('page_assignments').select('id', { count: 'exact', head: true }).not('chatter_name', 'is', null),
+  ])
   const lastSync = await getLastSyncedAt()
   return {
     envVarSet: !!process.env.MONDAY_BOARD_ID_MODELS,
     boardId: process.env.MONDAY_BOARD_ID_MODELS ?? null,
-    modelsInDb: count ?? 0,
+    assignmentsEnvSet: !!process.env.MONDAY_BOARD_ID_ASSIGNMENTS,
+    assignmentsBoardId: process.env.MONDAY_BOARD_ID_ASSIGNMENTS ?? null,
+    modelsInDb: modelsCount.count ?? 0,
+    assignmentsInDb: assignmentsCount.count ?? 0,
+    assignmentsWithChatter: chatterFilledCount.count ?? 0,
     lastSyncedAt: lastSync,
   }
 }
@@ -97,7 +105,7 @@ export default async function OnboardingPage() {
             Pages still to onboard (start date today or later) · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
-            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} total model{diagnostics.modelsInDb === 1 ? '' : 's'} in db
+            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} models · {diagnostics.assignmentsInDb} shift rows ({diagnostics.assignmentsWithChatter} with chatters) in db
           </div>
         </div>
         <SyncButton subtle={!needsAttention} />
@@ -123,6 +131,36 @@ export default async function OnboardingPage() {
         }}>
           <strong style={{ color: 'var(--amber)' }}>No models in the database yet.</strong> Env var is set (board {diagnostics.boardId}) but the sync hasn&apos;t pulled anything.
           Hit <strong>Sync now</strong> above. If it fails, the error will tell us why — most likely the Monday API token doesn&apos;t have access to the chat-stars workspace.
+        </div>
+      )}
+      {!diagnostics.assignmentsEnvSet && (
+        <div style={{
+          background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+          fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: 'var(--red)' }}>MONDAY_BOARD_ID_ASSIGNMENTS not set.</strong> Without this, POD/team and chatters-already-assigned can&apos;t be computed — every page will show 0 assigned.<br />
+          Add <code style={{ background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>MONDAY_BOARD_ID_ASSIGNMENTS=18402773333</code> in Vercel and redeploy.
+        </div>
+      )}
+      {diagnostics.assignmentsEnvSet && diagnostics.assignmentsInDb === 0 && (
+        <div style={{
+          background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.28)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+          fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: 'var(--amber)' }}>Assignment board env var is set but no shift rows in the db.</strong>
+          Hit <strong>Sync now</strong>. If it stays at 0 after a successful sync, the Monday token can&apos;t reach board {diagnostics.assignmentsBoardId}.
+        </div>
+      )}
+      {diagnostics.assignmentsEnvSet && diagnostics.assignmentsInDb > 0 && diagnostics.assignmentsWithChatter === 0 && (
+        <div style={{
+          background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.28)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+          fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: 'var(--amber)' }}>{diagnostics.assignmentsInDb} shift rows synced but none have a chatter parsed.</strong>
+          The &quot;Chatter&quot; column on board {diagnostics.assignmentsBoardId} probably isn&apos;t a plain text/people column — its .text value is empty. I&apos;ll need to check what column type Monday is sending.
         </div>
       )}
 
