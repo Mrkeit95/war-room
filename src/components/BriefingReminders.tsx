@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { formatDueLabel, isDueToday, isOverdue, loadReminders, saveReminders, type Reminder } from '@/lib/reminders'
+import { formatDueLabel, isDueToday, isOverdue, isRecurringActiveToday, loadReminders, recurrenceLabel, saveReminders, type Reminder } from '@/lib/reminders'
 
 export default function BriefingReminders() {
   const [items, setItems] = useState<Reminder[]>([])
@@ -16,7 +16,7 @@ export default function BriefingReminders() {
   if (!hydrated) return null
 
   const overdue = items.filter(r => !r.done && isOverdue(r.dueDate))
-  const today = items.filter(r => !r.done && isDueToday(r.dueDate))
+  const today = items.filter(r => !r.done && (isDueToday(r.dueDate) || isRecurringActiveToday(r.recurrence)))
 
   if (overdue.length === 0 && today.length === 0) return null
 
@@ -49,7 +49,9 @@ export default function BriefingReminders() {
 
 function Row({ reminder, onToggle, tone }: { reminder: Reminder; onToggle: () => void; tone: 'overdue' | 'today' }) {
   const accent = tone === 'overdue' ? 'var(--red)' : 'var(--amber)'
-  const label = reminder.dueDate ? formatDueLabel(reminder.dueDate) : ''
+  const label = reminder.recurrence
+    ? recurrenceLabel(reminder.recurrence)
+    : reminder.dueDate ? formatDueLabel(reminder.dueDate) : ''
   return (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
