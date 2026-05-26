@@ -95,6 +95,18 @@ export default async function OnboardingPage() {
     return a.daysUntilStart - b.daysUntilStart
   })
 
+  // Pages with no chatter schedule entry (no group on chat-stars board) AND starting soon.
+  // Sub-$40k pages need pairing too — if they're not on the schedule, they're not paired yet.
+  const unscheduledAlerts = models
+    .map(m => {
+      if (m.pod || m.team || m.chattersAlreadyAssigned > 0) return null   // already on schedule
+      if (m.daysUntilStart === null) return null
+      if (m.daysUntilStart > 7) return null
+      const severity: 'critical' | 'warning' = m.daysUntilStart <= 3 ? 'critical' : 'warning'
+      return { model: m, severity }
+    })
+    .filter((x): x is { model: ModelWithCapacity; severity: 'critical' | 'warning' } => x !== null)
+
   const needsAttention = !diagnostics.envVarSet || diagnostics.modelsInDb === 0
 
   return (
@@ -163,6 +175,11 @@ export default async function OnboardingPage() {
           <strong style={{ color: 'var(--amber)' }}>{diagnostics.assignmentsInDb} shift rows synced but none have a chatter parsed.</strong>
           The &quot;Chatter&quot; column on board {diagnostics.assignmentsBoardId} probably isn&apos;t a plain text/people column — its .text value is empty. I&apos;ll need to check what column type Monday is sending.
         </div>
+      )}
+
+      {/* Unscheduled-but-starting-soon alert */}
+      {unscheduledAlerts.length > 0 && (
+        <UnscheduledAlert alerts={unscheduledAlerts} />
       )}
 
       {/* Coverage banner */}
@@ -273,8 +290,20 @@ function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean
       <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)', textAlign: 'right' }}>{revenueLabel(model.revenue)}</div>
 
       {/* Pod · Team */}
-      <div style={{ fontSize: 11.5, fontFamily: 'monospace', color: model.pod || model.team ? 'var(--text-2)' : 'var(--text-4)' }}>
-        {model.pod || model.team ? `${model.pod ?? '—'} · ${model.team ?? '—'}` : <span style={{ fontStyle: 'italic', fontFamily: 'inherit' }}>not scheduled</span>}
+      <div style={{ fontSize: 11.5, fontFamily: 'monospace' }}>
+        {model.pod || model.team ? (
+          <span style={{ color: 'var(--text-2)' }}>{`${model.pod ?? '—'} · ${model.team ?? '—'}`}</span>
+        ) : (() => {
+          const days = model.daysUntilStart
+          const severity = days !== null && days <= 3 ? 'critical' : days !== null && days <= 7 ? 'warning' : 'normal'
+          const color = severity === 'critical' ? 'var(--red)' : severity === 'warning' ? 'var(--amber)' : 'var(--text-4)'
+          return (
+            <span style={{ color, fontStyle: 'italic', fontFamily: 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              {severity !== 'normal' && <span aria-hidden>⚠</span>}
+              not scheduled
+            </span>
+          )
+        })()}
       </div>
 
       {/* Board */}
@@ -300,6 +329,57 @@ function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean
       ) : (
         <AssignmentLink model={model} stillColor={stillColor} />
       )}
+    </div>
+  )
+}
+
+function UnscheduledAlert({ alerts }: { alerts: { model: ModelWithCapacity; severity: 'critical' | 'warning' }[] }) {
+  const critical = alerts.filter(a => a.severity === 'critical')
+  const warning = alerts.filter(a => a.severity === 'warning')
+  const isCritical = critical.length > 0
+  const bg = isCritical ? 'rgba(239,68,68,0.06)' : 'rgba(251,191,36,0.06)'
+  const border = isCritical ? 'rgba(239,68,68,0.32)' : 'rgba(251,191,36,0.32)'
+  const accent = isCritical ? 'var(--red)' : 'var(--amber)'
+
+  return (
+    <div style={{
+      background: bg, border: `1px solid ${border}`,
+      borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+      fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 14 }}>⚠</span>
+        <strong style={{ color: accent }}>
+          {alerts.length} {alerts.length === 1 ? 'page' : 'pages'} starting soon with no chatter schedule yet
+        </strong>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 10 }}>
+        These pages aren&apos;t on the chatter schedule board — not paired, no shifts. Action required before start date.
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {[...critical, ...warning].map(({ model, severity }) => (
+          <div key={model.id} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+            padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 6,
+            border: '1px solid var(--border)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+              <span style={{
+                fontSize: 9.5, padding: '2px 7px', borderRadius: 3,
+                background: severity === 'critical' ? 'rgba(239,68,68,0.14)' : 'rgba(251,191,36,0.14)',
+                color: severity === 'critical' ? 'var(--red)' : 'var(--amber)',
+                fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em',
+                whiteSpace: 'nowrap',
+              }}>{severity}</span>
+              <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
+              <span style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace' }}>{revenueLabel(model.revenue)}</span>
+            </div>
+            <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+              {startLabel(model.start_date, model.daysUntilStart)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
