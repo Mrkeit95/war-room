@@ -43,6 +43,7 @@ export default function SegmentModal() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [tierFilter, setTierFilter] = useState<number | null>(null)
+  const [groupFilter, setGroupFilter] = useState<string | null>(null)
 
   const filterKey = filter ? JSON.stringify(filter) : null
 
@@ -51,6 +52,7 @@ export default function SegmentModal() {
     // Reset internal filters when segment changes
     setSearch('')
     setTierFilter(null)
+    setGroupFilter(null)
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -80,6 +82,19 @@ export default function SegmentModal() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, candidateOpen])
 
+  // Distinct group titles in the loaded candidates (with counts) — used for the group chip row
+  const groupCounts = useMemo(() => {
+    if (!candidates) return [] as { title: string; count: number }[]
+    const m = new Map<string, number>()
+    for (const c of candidates) {
+      const title = c.current_group_title ?? c.current_stage
+      m.set(title, (m.get(title) ?? 0) + 1)
+    }
+    return Array.from(m.entries())
+      .map(([title, count]) => ({ title, count }))
+      .sort((a, b) => b.count - a.count)
+  }, [candidates])
+
   const visible = useMemo(() => {
     if (!candidates) return null
     return candidates.filter(c => {
@@ -91,9 +106,13 @@ export default function SegmentModal() {
         const rank = tierRank(c.tier)
         if (rank !== tierFilter) return false
       }
+      if (groupFilter) {
+        const title = c.current_group_title ?? c.current_stage
+        if (title !== groupFilter) return false
+      }
       return true
     })
-  }, [candidates, search, tierFilter])
+  }, [candidates, search, tierFilter, groupFilter])
 
   if (!filter || candidateOpen) return null
 
