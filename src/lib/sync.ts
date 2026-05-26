@@ -4,12 +4,13 @@
  */
 
 import { createAdminClient } from './supabase/admin'
-import { fetchAllBoards, type ParsedItem } from './monday'
+import { fetchAllBoards, fetchModelBoard, type ParsedItem, type ParsedModel } from './monday'
 import { detectTrack, normalizeStage, type CanonicalStage } from './stages'
 
 export type SyncResult = {
   syncRunId: string
   candidatesSynced: number
+  modelsSynced: number
   transitionsRecorded: number
   durationMs: number
   fetchMs: number
@@ -33,7 +34,10 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
 
   try {
     const tFetch = Date.now()
-    const boards = await fetchAllBoards()
+    const [boards, modelBoard] = await Promise.all([
+      fetchAllBoards(),
+      fetchModelBoard(),
+    ])
     const fetchMs = Date.now() - tFetch
 
     // Snapshot existing candidates' current_stage + stage entry time so we can detect transitions
@@ -126,6 +130,20 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       if (transErr) throw new Error(`Transition insert failed: ${transErr.message}`)
     }
 
+    // Models board (separate Monday board, separate table). Skip silently if env var unset.
+    let modelsSynced = 0
+    if (modelBoard) {
+      const modelRows = modelBoard.items.map(m => buildModelUpsertRow(m))
+      for (let i = 0; i < modelRows.length; i += CHUNK) {
+        const slice = modelRows.slice(i, i + CHUNK)
+        const { error: modelErr } = await supabase
+          .from('models')
+          .upsert(slice, { onConflict: 'monday_item_id' })
+        if (modelErr) throw new Error(`Model upsert failed at offset ${i}: ${modelErr.message}`)
+      }
+      modelsSynced = modelRows.length
+    }
+
     const finishedAt = new Date()
     await supabase
       .from('sync_runs')
@@ -140,6 +158,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
     return {
       syncRunId,
       candidatesSynced: rowsToUpsert.length,
+      modelsSynced,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       fetchMs,
@@ -157,6 +176,28 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       })
       .eq('id', syncRunId)
     throw err
+  }
+}
+
+function buildModelUpsertRow(m: ParsedModel): Record<string, unknown> {
+  return {
+    monday_item_id: m.monday_item_id,
+    monday_board_id: m.boardId,
+    name: m.name,
+    agency: m.agency,
+    page_type: m.page_type,
+    revenue: m.revenue,
+    start_date: m.start_date,
+    board: m.board,
+    ae: m.ae,
+    status: m.status,
+    telegram_group: m.telegram_group,
+    marketing: m.marketing,
+    group_title: m.group_title,
+    monday_created_at: m.monday_created_at,
+    monday_updated_at: m.monday_updated_at,
+    last_synced_at: new Date().toISOString(),
+    raw_data: m.raw_data,
   }
 }
 

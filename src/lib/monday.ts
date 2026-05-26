@@ -207,3 +207,88 @@ export async function fetchAllBoards(): Promise<{ region: RegionCode; boardId: s
     })
   )
 }
+
+/**
+ * Model onboarding board (separate from the 4 region chatter boards).
+ * Tracks pages we onboard, not chatters. Revenue → team math is handled in
+ * lib/models.ts; this is just the parser.
+ */
+export type ParsedModel = {
+  boardId: string
+  monday_item_id: string
+  name: string
+  agency: string | null
+  page_type: string | null
+  revenue: number | null
+  start_date: string | null      // YYYY-MM-DD
+  board: string | null           // BOARD 1 / 2 / 3
+  ae: string | null
+  status: string | null          // PENDING / ACTIVE / ...
+  telegram_group: string | null
+  marketing: string | null
+  group_title: string | null
+  monday_created_at: string | null
+  monday_updated_at: string | null
+  raw_data: MondayItem
+}
+
+function parseRevenue(text: string | null): number | null {
+  if (!text) return null
+  // Strip $, commas, whitespace. Handles "$80,000", "80000", "$9.5k" → 9500.
+  const cleaned = text.replace(/[\s,$]/g, '').toLowerCase()
+  if (!cleaned) return null
+  const kMatch = cleaned.match(/^([\d.]+)k$/)
+  if (kMatch) {
+    const n = parseFloat(kMatch[1])
+    return Number.isFinite(n) ? n * 1000 : null
+  }
+  const n = parseFloat(cleaned)
+  return Number.isFinite(n) ? n : null
+}
+
+function parseDate(text: string | null): string | null {
+  if (!text) return null
+  // Monday date column .text comes in like "2026-06-22" already, or sometimes "Jun 22".
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text
+  const d = new Date(text)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toISOString().slice(0, 10)
+}
+
+export function parseModelItem(item: MondayItem, boardId: string): ParsedModel {
+  const agency = findCol(item, 'AGENCY (GM)', 'AGENCY', 'Agency')
+  const pageType = findCol(item, 'PAGE TYPE (GM)', 'PAGE TYPE', 'Page Type')
+  const revenue = findCol(item, 'REVENUE (GM)', 'REVENUE', 'Revenue')
+  const startDate = findCol(item, 'START DATE (GM)', 'START DATE', 'Start Date')
+  const board = findCol(item, 'BOARD (VP)', 'BOARD', 'Board')
+  const ae = findCol(item, 'AEs (GM)', 'AEs', 'AE')
+  const status = findCol(item, 'STATUS (AE)', 'STATUS', 'Status')
+  const telegram = findCol(item, 'TELEGRAM GROUP', 'Telegram Group', 'TELEGRAM GRO...')
+  const marketing = findCol(item, 'MARKETING', 'Marketing')
+
+  return {
+    boardId,
+    monday_item_id: item.id,
+    name: item.name,
+    agency: textOf(agency),
+    page_type: textOf(pageType),
+    revenue: parseRevenue(textOf(revenue)),
+    start_date: parseDate(textOf(startDate)),
+    board: textOf(board),
+    ae: textOf(ae),
+    status: textOf(status),
+    telegram_group: textOf(telegram),
+    marketing: textOf(marketing),
+    group_title: item.group?.title ?? null,
+    monday_created_at: item.created_at,
+    monday_updated_at: item.updated_at,
+    raw_data: item,
+  }
+}
+
+export async function fetchModelBoard(): Promise<{ boardId: string; items: ParsedModel[] } | null> {
+  const boardId = process.env.MONDAY_BOARD_ID_MODELS
+  if (!boardId) return null
+  const items = await fetchAllItems(boardId)
+  return { boardId, items: items.map(it => parseModelItem(it, boardId)) }
+}
