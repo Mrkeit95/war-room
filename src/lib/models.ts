@@ -76,19 +76,32 @@ export async function getUpcomingModels(): Promise<ModelWithCapacity[]> {
 }
 
 /**
- * Global standby supply: chatters in standby/pool with no board assignment.
- * That's the set of people we could route onto a newly onboarded page.
+ * Global standby supply: chatters in the standby stage with no board assignment.
+ * Matches the /standby page's "no BOARD assigned" count exactly so the numbers
+ * agree across the app.
  */
 export async function getAvailableStandbyCount(): Promise<number> {
   const supabase = createAdminClient()
-  // PostgREST: in() for stage filter, or() for "board IS NULL OR board = ''".
-  const { count, error } = await supabase
-    .from('candidates')
-    .select('id', { count: 'exact', head: true })
-    .in('current_stage', ['standby', 'pool'])
-    .or('board_assignment.is.null,board_assignment.eq.')
-  if (error) throw new Error(`getAvailableStandbyCount: ${error.message}`)
-  return count ?? 0
+  // Fetch board_assignment and filter in JS so whitespace-only values are treated
+  // as empty (matches /standby's `!board_assignment?.trim()` logic).
+  const PAGE = 1000
+  let from = 0
+  let available = 0
+  while (true) {
+    const { data, error } = await supabase
+      .from('candidates')
+      .select('board_assignment')
+      .eq('current_stage', 'standby')
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`getAvailableStandbyCount: ${error.message}`)
+    if (!data || data.length === 0) break
+    for (const row of data as { board_assignment: string | null }[]) {
+      if (!row.board_assignment?.trim()) available += 1
+    }
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return available
 }
 
 export type OnboardingSnapshot = {
