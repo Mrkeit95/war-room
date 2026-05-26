@@ -88,6 +88,8 @@ export default async function OnboardingPage() {
 
   const needsAttention = !diagnostics.envVarSet || diagnostics.modelsInDb === 0
 
+  const activeGroupTitle = models[0]?.group_title ?? null
+
   return (
     <div>
       <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
@@ -97,7 +99,8 @@ export default async function OnboardingPage() {
             Upcoming pages · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
-            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} model{diagnostics.modelsInDb === 1 ? '' : 's'} in db
+            {activeGroupTitle && <>Batch: <span style={{ color: 'var(--text-2)' }}>{activeGroupTitle}</span> · </>}
+            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} total model{diagnostics.modelsInDb === 1 ? '' : 's'} in db
           </div>
         </div>
         <SyncButton subtle={!needsAttention} />
