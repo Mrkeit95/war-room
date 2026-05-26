@@ -149,13 +149,14 @@ function buildPeople(counts: Map<string, number>): Person[] {
   return people
 }
 
-export default async function ManagersPage({ searchParams }: { searchParams: Promise<{ group?: string; q?: string }> }) {
+export default async function ManagersPage({ searchParams }: { searchParams: Promise<{ group?: string; q?: string; focus?: string }> }) {
   const params = await searchParams
   const filterGroupRaw = params.group?.toLowerCase()
   const filterGroup: Group | null = (['leadership', 'region-heads', 'aes', 'recruiters', 'trainers'] as Group[]).includes(filterGroupRaw as Group)
     ? (filterGroupRaw as Group)
     : null
   const filterQuery = params.q?.trim().toLowerCase() ?? ''
+  const focusKey = params.focus?.trim() || null
 
   let counts: Map<string, number>
   try {
@@ -172,6 +173,15 @@ export default async function ManagersPage({ searchParams }: { searchParams: Pro
   }
 
   const allPeople = buildPeople(counts)
+
+  // If focused on one person, render only their shift detail view
+  if (focusKey) {
+    const focused = allPeople.find(p => p.key === focusKey || p.rawName === focusKey || p.display === focusKey)
+    if (focused) {
+      return <FocusedShiftView person={focused} />
+    }
+  }
+
   const filtered = allPeople.filter(p => {
     if (filterGroup && p.groupTag !== filterGroup) return false
     if (filterQuery && !p.display.toLowerCase().includes(filterQuery) && !p.role.toLowerCase().includes(filterQuery)) return false
@@ -286,14 +296,33 @@ function HeaderRow() {
 }
 
 function PersonRow({ person, isLast }: { person: Person; isLast: boolean }) {
-  const content = (
+  const candidateCell = person.candidateCount !== undefined && person.candidateCount > 0 ? (
+    person.candidatesHref ? (
+      <Link href={person.candidatesHref} style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap', color: 'var(--text-2)', textDecoration: 'none', borderBottom: '1px dotted var(--border-strong)' }}>
+        {person.candidateCount.toLocaleString()} →
+      </Link>
+    ) : (
+      <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{person.candidateCount.toLocaleString()}</span>
+    )
+  ) : (
+    <span style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'right' }}>—</span>
+  )
+  return (
     <div style={{
       display: 'grid', gridTemplateColumns: ROW_COLS, gap: 14,
       alignItems: 'center', padding: '13px 0',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      cursor: person.candidatesHref ? 'pointer' : 'default',
     }}>
-      <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{person.display}</span>
+      <Link
+        href={`/managers?focus=${encodeURIComponent(person.key)}`}
+        style={{
+          fontSize: 13.5, fontWeight: 500, color: 'var(--text)', textDecoration: 'none',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer',
+        }}
+        title="Click to see this person's shift"
+      >
+        {person.display}
+      </Link>
       <span style={{ fontSize: 12, color: 'var(--text-2)' }}>{person.role}</span>
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
         {person.scope.slice(0, 3).map(s => (
@@ -304,16 +333,70 @@ function PersonRow({ person, isLast }: { person: Person; isLast: boolean }) {
         )}
       </div>
       <ShiftCell shift={person.shift} />
-      {person.candidateCount !== undefined && person.candidateCount > 0 ? (
-        <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right', whiteSpace: 'nowrap' }}>{person.candidateCount.toLocaleString()}</span>
-      ) : (
-        <span style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'right' }}>—</span>
+      {candidateCell}
+    </div>
+  )
+}
+
+function FocusedShiftView({ person }: { person: Person }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 24 }}>
+        <Link href="/managers" style={{ fontSize: 12, color: 'var(--text-3)', textDecoration: 'none' }}>← All managers</Link>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginTop: 10, marginBottom: 6 }}>{person.display}</h1>
+        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>{person.role}</div>
+      </div>
+
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '24px 28px', marginBottom: 14 }}>
+        <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 18 }}>Shift schedule · PHT</div>
+        {!person.shift ? (
+          <div style={{ fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic' }}>
+            No shift configured yet for {person.display}.
+          </div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 14, color: 'var(--text-2)', marginBottom: 16 }}>{person.shift.label}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '10px 16px', alignItems: 'center' }}>
+              {person.shift.blocks.map((b, i) => (
+                <div key={i} style={{ display: 'contents' }}>
+                  <span style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>{b.day}</span>
+                  <span style={{ fontFamily: 'monospace', fontSize: 14, color: 'var(--text)' }}>
+                    {b.start} → {b.end} PHT
+                    {b.crossesMidnight && <span style={{ marginLeft: 8, fontSize: 10.5, color: 'var(--text-4)' }}>(overnight)</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {person.scope.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '20px 24px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 12 }}>Scope</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {person.scope.map(s => (
+              <span key={s} style={{ fontSize: 11, padding: '4px 10px', borderRadius: 5, background: 'var(--surface-2)', color: 'var(--text-2)' }}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {person.candidatesHref && person.candidateCount !== undefined && person.candidateCount > 0 && (
+        <Link
+          href={person.candidatesHref}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            background: 'var(--surface-2)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '10px 16px',
+            fontSize: 13, color: 'var(--text-2)', textDecoration: 'none',
+          }}
+        >
+          View {person.candidateCount.toLocaleString()} candidates →
+        </Link>
       )}
     </div>
   )
-  return person.candidatesHref
-    ? <Link href={person.candidatesHref} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{content}</Link>
-    : content
 }
 
 function ShiftCell({ shift }: { shift?: ShiftConfig }) {

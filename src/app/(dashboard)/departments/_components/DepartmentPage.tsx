@@ -9,6 +9,8 @@ import {
   OVERSEERS,
   REGION_SOLE_OWNER,
   displayName,
+  getAllSectionManagerNames,
+  getConfiguredManagerCount,
   getSectionManagers,
   groupOrderIndex,
   isMainBoardManager,
@@ -112,7 +114,7 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
               meta="Week 1–3 + TB probation"
               segment={`${regionCode}:training`}
             />
-            <KpiCard label="Managers in this sector" value={fmt(stats?.byManager.length ?? 0)} meta="recruiters + trainers + leads" href="/managers" />
+            <KpiCard label="Managers in this sector" value={fmt(getConfiguredManagerCount(region))} meta="recruiters + trainers + AEs + Allyson" href="/managers" />
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 14, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
             Cross-region pool (Active · Standby · PTO · Promoted · Offboarded) lives in its own section in the sidebar — those chatters come from every region, not just PH.
@@ -130,7 +132,7 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
             color="var(--text-3)"
             href={`/candidates?region=${region}&status=offboarded`}
           />
-          <KpiCard label="Managers" value={fmt(stats?.byManager.length ?? 0)} meta="people in this sector" />
+          <KpiCard label="Managers" value={fmt(getConfiguredManagerCount(region))} meta="configured for this region" href="/managers" />
         </div>
       )}
 
@@ -217,30 +219,30 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </Panel>
       )}
 
-      {/* Per-manager breakdown */}
-      {stats && stats.byManager.length > 0 && (
-        <Panel title={`By manager · ${stats.byManager.length} ${stats.byManager.length === 1 ? 'person' : 'people'}`} style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)', gap: 12, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, padding: '6px 0 10px', borderBottom: '1px solid var(--border)' }}>
-              <span>Manager</span>
-              <span style={{ textAlign: 'right' }}>In pipeline</span>
-              <span style={{ textAlign: 'right' }}>T1</span>
-              <span style={{ textAlign: 'right' }}>T2</span>
-              <span style={{ textAlign: 'right' }}>T3</span>
-              <span style={{ textAlign: 'right' }}>T4</span>
-              <span style={{ textAlign: 'right' }}>—</span>
-            </div>
-            {stats.byManager.slice(0, MANAGER_DISPLAY_LIMIT).map((m, i) => (
-              <ManagerRow key={m.name} manager={m} region={region} isLast={i === Math.min(stats!.byManager.length, MANAGER_DISPLAY_LIMIT) - 1} />
-            ))}
-            {stats.byManager.length > MANAGER_DISPLAY_LIMIT && (
-              <div style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'center', padding: '10px 0 0', fontStyle: 'italic' }}>
-                +{stats.byManager.length - MANAGER_DISPLAY_LIMIT} more managers
+      {/* Per-manager breakdown — only configured section managers (no long-tail Monday assignees) */}
+      {stats && stats.byManager.length > 0 && (() => {
+        const configured = getAllSectionManagerNames(region)
+        const filteredManagers = stats.byManager.filter(m => configured.has(m.name))
+        if (filteredManagers.length === 0) return null
+        return (
+          <Panel title={`By manager · ${filteredManagers.length} ${filteredManagers.length === 1 ? 'person' : 'people'}`} style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)', gap: 12, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, padding: '6px 0 10px', borderBottom: '1px solid var(--border)' }}>
+                <span>Manager</span>
+                <span style={{ textAlign: 'right' }}>In pipeline</span>
+                <span style={{ textAlign: 'right' }}>T1</span>
+                <span style={{ textAlign: 'right' }}>T2</span>
+                <span style={{ textAlign: 'right' }}>T3</span>
+                <span style={{ textAlign: 'right' }}>T4</span>
+                <span style={{ textAlign: 'right' }}>—</span>
               </div>
-            )}
-          </div>
-        </Panel>
-      )}
+              {filteredManagers.map((m, i) => (
+                <ManagerRow key={m.name} manager={m} region={region} isLast={i === filteredManagers.length - 1} />
+              ))}
+            </div>
+          </Panel>
+        )
+      })()}
 
       {lanes && (
         <Panel title="Training lanes (manual config)">
@@ -307,7 +309,9 @@ function StaleRow({ candidate, isLast }: { candidate: StaleCandidate; isLast: bo
 
 function StageDetailRow({ group, region, regionCode, isLast }: { group: GroupSummary; region: Region; regionCode: string; isLast: boolean }) {
   const bucket = uiBucket(group.stage)
-  const segment = bucket ? `${regionCode}:${bucket}` : null
+  // Filter by EXACT Monday group title — not by bucket — so clicking "TRAINING BOARD CHATTERS"
+  // shows only those 42, not all 272 in the wider training bucket.
+  const segment = `${regionCode}:group:${group.groupTitle}`
   const accentByBucket: Record<string, string> = {
     typeform: 'var(--text-4)', passed: 'var(--blue)',
     pending: 'var(--amber)', scheduled: 'var(--blue)',

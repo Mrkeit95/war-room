@@ -231,6 +231,16 @@ export function aeForBoard(boardAssignment: string | null | undefined): string |
   return BOARD_TO_AE[boardAssignment.trim().toUpperCase()] ?? null
 }
 
+/** People we've explicitly configured for each region (section managers + relevant overseers). */
+export function getConfiguredManagerCount(region: Region): number {
+  if (region === 'PH') {
+    // 9 section managers + Allyson (head of training) + 3 AEs = 13
+    return getAllSectionManagerNames('PH').size + 1 + 3
+  }
+  if (REGION_SOLE_OWNER[region]) return 1 // just the regional head
+  return 0
+}
+
 /** Section assignments for a given region. */
 export function getSectionsForRegion(region: Region): SectionAssignment[] {
   if (REGION_SOLE_OWNER[region]) {

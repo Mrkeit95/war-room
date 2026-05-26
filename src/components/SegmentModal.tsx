@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   gradeBg,
   gradeColors,
   parseSegment,
   segmentLabel,
+  tierRank,
   type SegmentFilter,
 } from '@/lib/candidates'
 
@@ -24,6 +25,7 @@ function filterToQuery(filter: SegmentFilter): string {
   const region = filter.region
   if (filter.kind === 'all') return `region=${region}`
   if (filter.kind === 'grade') return `region=${region}&grade=${filter.grade}`
+  if (filter.kind === 'group') return `region=${region}&group=${encodeURIComponent(filter.groupTitle)}`
   // stage → bucket name (segment URLs use UI bucket names already)
   return `region=${region}&bucket=${filter.stage}`
 }
@@ -39,15 +41,20 @@ export default function SegmentModal() {
   const [candidates, setCandidates] = useState<ApiCandidate[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
+  const [tierFilter, setTierFilter] = useState<number | null>(null)
 
   const filterKey = filter ? JSON.stringify(filter) : null
 
   useEffect(() => {
     if (!filter || candidateOpen) { setCandidates(null); return }
+    // Reset internal filters when segment changes
+    setSearch('')
+    setTierFilter(null)
     let cancelled = false
     setLoading(true)
     setError(null)
-    fetch(`/api/candidates?${filterToQuery(filter)}&limit=200`)
+    fetch(`/api/candidates?${filterToQuery(filter)}&limit=500`)
       .then(async r => {
         if (!r.ok) throw new Error(`Lookup failed (${r.status})`)
         return r.json()
@@ -72,6 +79,21 @@ export default function SegmentModal() {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter, candidateOpen])
+
+  const visible = useMemo(() => {
+    if (!candidates) return null
+    return candidates.filter(c => {
+      if (search) {
+        const q = search.toLowerCase()
+        if (!c.name.toLowerCase().includes(q) && !(c.assigned_manager?.toLowerCase().includes(q))) return false
+      }
+      if (tierFilter !== null) {
+        const rank = tierRank(c.tier)
+        if (rank !== tierFilter) return false
+      }
+      return true
+    })
+  }, [candidates, search, tierFilter])
 
   if (!filter || candidateOpen) return null
 
@@ -102,7 +124,15 @@ export default function SegmentModal() {
           <div>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.01em' }}>{title}</div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
-              {sub}{candidates !== null ? ` · ${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}` : ''}
+              {sub}
+              {candidates !== null && visible !== null && (
+                <>
+                  {' · '}
+                  {visible.length === candidates.length
+                    ? `${candidates.length} ${candidates.length === 1 ? 'candidate' : 'candidates'}`
+                    : `${visible.length} of ${candidates.length}`}
+                </>
+              )}
             </div>
           </div>
           <button
@@ -143,6 +173,21 @@ export default function SegmentModal() {
         </div>
       </div>
     </div>
+  )
+}
+
+function TierChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        fontSize: 11, padding: '3px 10px', borderRadius: 4, cursor: 'pointer', fontWeight: 500,
+        background: active ? 'var(--surface-3)' : 'transparent',
+        color: active ? 'var(--text)' : 'var(--text-3)',
+        border: `1px solid ${active ? 'var(--border-strong)' : 'var(--border)'}`,
+        fontFamily: 'inherit',
+      }}
+    >{label}</button>
   )
 }
 

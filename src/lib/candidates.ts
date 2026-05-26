@@ -75,11 +75,15 @@ export const CANDIDATES: Record<string, Candidate> = {
 export type SegmentFilter =
   | { kind: 'stage'; region: Region; stage: StageKey }
   | { kind: 'grade'; region: Region; grade: 'A' | 'B' | 'C' | 'D' | 'F' }
+  | { kind: 'group'; region: Region; groupTitle: string }   // exact Monday group title
   | { kind: 'all'; region: Region }
 
 export function parseSegment(value: string | null | undefined): SegmentFilter | null {
   if (!value) return null
-  const [regionRaw, rest] = value.split(':')
+  const firstColon = value.indexOf(':')
+  if (firstColon < 0) return null
+  const regionRaw = value.slice(0, firstColon)
+  const rest = value.slice(firstColon + 1)
   if (!regionRaw || !rest) return null
   const region = regionRaw.toUpperCase() as Region
   if (!['PH', 'EU', 'SA', 'UK'].includes(region)) return null
@@ -90,6 +94,11 @@ export function parseSegment(value: string | null | undefined): SegmentFilter | 
     if (!['A', 'B', 'C', 'D', 'F'].includes(grade)) return null
     return { kind: 'grade', region, grade }
   }
+  if (rest.startsWith('group:')) {
+    const groupTitle = rest.slice(6)
+    if (!groupTitle) return null
+    return { kind: 'group', region, groupTitle }
+  }
   const stage = rest as StageKey
   if (!['typeform', 'passed', 'pending', 'scheduled', 'training', 'standby', 'active'].includes(stage)) return null
   return { kind: 'stage', region, stage }
@@ -99,6 +108,7 @@ export function filterCandidates(filter: SegmentFilter): Candidate[] {
   const all = Object.values(CANDIDATES).filter(c => c.region === filter.region)
   if (filter.kind === 'all') return all
   if (filter.kind === 'stage') return all.filter(c => c.stageKey === filter.stage)
+  if (filter.kind === 'group') return all.filter(c => c.stage === filter.groupTitle)
   return all.filter(c => c.grade === filter.grade)
 }
 
@@ -114,6 +124,7 @@ export function segmentLabel(filter: SegmentFilter): { title: string; sub: strin
   const headline = `${r.flag} ${r.name}`
   if (filter.kind === 'all') return { title: headline, sub: 'All candidates in pipeline' }
   if (filter.kind === 'grade') return { title: headline, sub: `Grade ${filter.grade}` }
+  if (filter.kind === 'group') return { title: headline, sub: filter.groupTitle }
   const stageLabels: Record<StageKey, string> = {
     typeform: 'Typeform', passed: 'Passed', pending: 'Pending interview',
     scheduled: 'Scheduled interview', training: 'In training', standby: 'Standby', active: 'Active hires',

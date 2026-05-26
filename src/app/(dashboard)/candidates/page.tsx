@@ -15,6 +15,7 @@ type Row = {
   tier: string | null
   assigned_manager: string | null
   monday_updated_at: string | null
+  current_stage_entered_at: string | null
   last_synced_at: string
 }
 
@@ -48,7 +49,7 @@ async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyn
     const supabase = createAdminClient()
     let q = supabase
       .from('candidates')
-      .select('id, name, region, current_stage, current_group_title, tier, assigned_manager, monday_updated_at, last_synced_at', { count: 'exact' })
+      .select('id, name, region, current_stage, current_group_title, tier, assigned_manager, monday_updated_at, current_stage_entered_at, last_synced_at', { count: 'exact' })
 
     if (filters.status === 'offboarded') q = q.eq('current_stage', 'offboarded')
     else if (filters.status === 'all') { /* no filter */ }
@@ -211,14 +212,21 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                {['Tier', 'Name', 'Region', 'Stage', 'Manager', 'Bucket'].map(h => (
-                  <th key={h} style={{ background: 'var(--surface-2)', padding: '12px 16px', textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>{h}</th>
-                ))}
+                {(() => {
+                  const headers = ['Tier', 'Name', 'Region', 'Stage', 'Manager', 'Bucket']
+                  if (filters.stage) headers.push(`Days in ${filters.stage.replace(/_/g, ' ')}`)
+                  return headers.map(h => (
+                    <th key={h} style={{ background: 'var(--surface-2)', padding: '12px 16px', textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  ))
+                })()}
               </tr>
             </thead>
             <tbody>
               {rows.map((c, i) => {
                 const bucket = uiBucket(c.current_stage)
+                const daysIn = filters.stage && c.current_stage_entered_at
+                  ? Math.max(0, Math.floor((Date.now() - new Date(c.current_stage_entered_at).getTime()) / 86_400_000))
+                  : null
                 return (
                   <tr key={c.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none' }}>
                     <td style={{ padding: '14px 16px' }}>{tierBadge(c.tier)}</td>
@@ -243,6 +251,18 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
                         <span style={{ fontSize: 11, color: 'var(--text-4)' }}>—</span>
                       )}
                     </td>
+                    {filters.stage && (
+                      <td style={{ padding: '14px 16px', fontSize: 13, fontFamily: 'monospace' }}>
+                        {daysIn !== null ? (
+                          <span style={{
+                            color: filters.stage === 'pto' && daysIn >= 14 ? 'var(--red)'
+                              : filters.stage === 'pto' && daysIn >= 7 ? 'var(--amber)'
+                              : 'var(--text-2)',
+                            fontWeight: 600,
+                          }}>{daysIn}d</span>
+                        ) : <span style={{ color: 'var(--text-4)' }}>—</span>}
+                      </td>
+                    )}
                   </tr>
                 )
               })}
