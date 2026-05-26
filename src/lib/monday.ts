@@ -292,3 +292,62 @@ export async function fetchModelBoard(): Promise<{ boardId: string; items: Parse
   const items = await fetchAllItems(boardId)
   return { boardId, items: items.map(it => parseModelItem(it, boardId)) }
 }
+
+/**
+ * Chatter schedule board. Each Monday group = a page ("POD C - T8 CHINKERBELL"),
+ * each item = a shift slot with one chatter assigned.
+ */
+export type ParsedPageAssignment = {
+  boardId: string
+  monday_item_id: string
+  group_title: string | null
+  pod: string | null
+  team: string | null
+  page_name: string | null
+  shift_name: string
+  chatter_name: string | null
+  monday_created_at: string | null
+  monday_updated_at: string | null
+  raw_data: MondayItem
+}
+
+/**
+ * Parse "POD C - T8 CHINKERBELL" → { pod: "C", team: "T8", page_name: "CHINKERBELL" }.
+ * Falls back to a permissive split if the canonical format doesn't match.
+ */
+export function parsePageGroupTitle(title: string | null): { pod: string | null; team: string | null; page_name: string | null } {
+  if (!title) return { pod: null, team: null, page_name: null }
+  const m = title.match(/^POD\s+(\S+)\s*-\s*(T\d+)\s+(.+)$/i)
+  if (m) {
+    return { pod: m[1].toUpperCase(), team: m[2].toUpperCase(), page_name: m[3].trim().toUpperCase() }
+  }
+  // Fallback: just take the last token as the page name
+  const tokens = title.trim().split(/\s+/)
+  const page_name = tokens.length > 0 ? tokens[tokens.length - 1].toUpperCase() : null
+  return { pod: null, team: null, page_name }
+}
+
+export function parsePageAssignmentItem(item: MondayItem, boardId: string): ParsedPageAssignment {
+  const chatter = findCol(item, 'Chatter', 'CHATTER')
+  const { pod, team, page_name } = parsePageGroupTitle(item.group?.title ?? null)
+  return {
+    boardId,
+    monday_item_id: item.id,
+    group_title: item.group?.title ?? null,
+    pod,
+    team,
+    page_name,
+    shift_name: item.name,
+    chatter_name: textOf(chatter),
+    monday_created_at: item.created_at,
+    monday_updated_at: item.updated_at,
+    raw_data: item,
+  }
+}
+
+export async function fetchPageAssignmentBoard(): Promise<{ boardId: string; items: ParsedPageAssignment[] } | null> {
+  const boardId = process.env.MONDAY_BOARD_ID_ASSIGNMENTS
+  if (!boardId) return null
+  const items = await fetchAllItems(boardId)
+  return { boardId, items: items.map(it => parsePageAssignmentItem(it, boardId)) }
+}

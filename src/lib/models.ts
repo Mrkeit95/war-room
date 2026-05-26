@@ -32,6 +32,10 @@ export type Model = {
 export type ModelWithCapacity = Model & {
   teamsNeeded: number
   chattersNeeded: number
+  chattersAlreadyAssigned: number
+  chattersStillNeeded: number          // max(0, chattersNeeded - chattersAlreadyAssigned)
+  pod: string | null                   // from the chatter schedule board group title
+  team: string | null
   daysUntilStart: number | null
 }
 
@@ -56,6 +60,50 @@ function isoDay(date: Date): string {
 }
 
 /**
+ * For each upcoming page, count how many distinct chatters are already
+ * assigned on the chatter schedule board, plus surface the POD/team labels
+ * from the matching Monday group title.
+ *
+ * Match is case-insensitive substring: a model named "CHINKERBELL" matches
+ * any assignment whose page_name (parsed from the group title) equals
+ * "CHINKERBELL" — or, if page_name parsing failed, whose group_title
+ * contains the model name.
+ */
+type AssignmentLookup = Record<string, { chatters: Set<string>; pod: string | null; team: string | null }>
+
+async function getAssignmentsByPage(modelNames: string[]): Promise<AssignmentLookup> {
+  if (modelNames.length === 0) return {}
+  const supabase = createAdminClient()
+  const { data, error } = await supabase
+    .from('page_assignments')
+    .select('page_name, group_title, chatter_name, pod, team')
+  if (error) throw new Error(`getAssignmentsByPage: ${error.message}`)
+
+  const result: AssignmentLookup = {}
+  for (const name of modelNames) result[name] = { chatters: new Set(), pod: null, team: null }
+
+  for (const row of (data ?? []) as { page_name: string | null; group_title: string | null; chatter_name: string | null; pod: string | null; team: string | null }[]) {
+    const pageName = row.page_name?.toUpperCase() ?? null
+    const groupTitle = row.group_title?.toUpperCase() ?? null
+
+    for (const modelName of modelNames) {
+      const upper = modelName.toUpperCase()
+      const matchesPage = pageName === upper
+      const matchesTitle = !pageName && groupTitle ? groupTitle.includes(upper) : false
+      if (!matchesPage && !matchesTitle) continue
+
+      const entry = result[modelName]
+      if (row.chatter_name && row.chatter_name.trim()) {
+        entry.chatters.add(row.chatter_name.trim())
+      }
+      if (!entry.pod && row.pod) entry.pod = row.pod
+      if (!entry.team && row.team) entry.team = row.team
+    }
+  }
+  return result
+}
+
+/**
  * Models still to be onboarded: start_date is today or later.
  * Excludes anything explicitly marked ACTIVE (those are already live).
  */
@@ -72,12 +120,24 @@ export async function getUpcomingModels(): Promise<ModelWithCapacity[]> {
     .order('start_date', { ascending: true })
   if (error) throw new Error(`getUpcomingModels: ${error.message}`)
 
-  return (data ?? []).map(m => ({
-    ...(m as Model),
-    teamsNeeded: teamsForRevenue(m.revenue),
-    chattersNeeded: chattersForRevenue(m.revenue),
-    daysUntilStart: daysUntil(m.start_date, now),
-  }))
+  const rows = (data ?? []) as Model[]
+  const lookup = await getAssignmentsByPage(rows.map(m => m.name))
+
+  return rows.map(m => {
+    const chattersNeeded = chattersForRevenue(m.revenue)
+    const assignment = lookup[m.name]
+    const chattersAlreadyAssigned = assignment ? assignment.chatters.size : 0
+    return {
+      ...m,
+      teamsNeeded: teamsForRevenue(m.revenue),
+      chattersNeeded,
+      chattersAlreadyAssigned,
+      chattersStillNeeded: Math.max(0, chattersNeeded - chattersAlreadyAssigned),
+      pod: assignment?.pod ?? null,
+      team: assignment?.team ?? null,
+      daysUntilStart: daysUntil(m.start_date, now),
+    }
+  })
 }
 
 /**
@@ -111,7 +171,9 @@ export async function getAvailableStandbyCount(): Promise<number> {
 
 export type OnboardingSnapshot = {
   models: ModelWithCapacity[]
-  totalChattersNeeded: number
+  totalChattersNeeded: number          // sum across pages, gross — for reference
+  totalAlreadyAssigned: number         // already pulled from other pages
+  totalStillNeeded: number             // what we actually need to source from standby
   availableStandby: number
   coverage: 'covered' | 'short'
   shortBy: number
@@ -123,10 +185,14 @@ export async function getOnboardingSnapshot(): Promise<OnboardingSnapshot> {
     getAvailableStandbyCount(),
   ])
   const totalChattersNeeded = models.reduce((sum, m) => sum + m.chattersNeeded, 0)
-  const shortBy = Math.max(0, totalChattersNeeded - availableStandby)
+  const totalAlreadyAssigned = models.reduce((sum, m) => sum + m.chattersAlreadyAssigned, 0)
+  const totalStillNeeded = models.reduce((sum, m) => sum + m.chattersStillNeeded, 0)
+  const shortBy = Math.max(0, totalStillNeeded - availableStandby)
   return {
     models,
     totalChattersNeeded,
+    totalAlreadyAssigned,
+    totalStillNeeded,
     availableStandby,
     coverage: shortBy === 0 ? 'covered' : 'short',
     shortBy,

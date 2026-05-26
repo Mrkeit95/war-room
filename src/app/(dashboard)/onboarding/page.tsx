@@ -73,8 +73,8 @@ export default async function OnboardingPage() {
     )
   }
 
-  const { models, totalChattersNeeded, availableStandby, coverage, shortBy } = snapshot
-  const surplus = Math.max(0, availableStandby - totalChattersNeeded)
+  const { models, totalChattersNeeded, totalAlreadyAssigned, totalStillNeeded, availableStandby, coverage, shortBy } = snapshot
+  const surplus = Math.max(0, availableStandby - totalStillNeeded)
   const countable = models.filter(m => m.teamsNeeded > 0)
   const unpaired = models.filter(m => m.teamsNeeded === 0 && (m.revenue ?? 0) > 0)
 
@@ -135,7 +135,11 @@ export default async function OnboardingPage() {
           value={fmt(models.length)}
           sub={unpaired.length > 0 ? `${countable.length} need own team · ${unpaired.length} paired` : `${countable.length} need own team`}
         />
-        <StatCard label="Chatters needed" value={fmt(totalChattersNeeded)} sub={`${Math.ceil(totalChattersNeeded / 4)} teams · $40k+ pages only`} />
+        <StatCard
+          label="Still needed from standby"
+          value={fmt(totalStillNeeded)}
+          sub={`${fmt(totalChattersNeeded)} gross · ${fmt(totalAlreadyAssigned)} already pulled from other pages`}
+        />
         <StatCard label="Available standby" value={fmt(availableStandby)} sub="no board assigned" />
         {coverage === 'covered' ? (
           <StatCard label="Coverage" value={`+${fmt(surplus)}`} color="var(--green)" sub="surplus" />
@@ -150,8 +154,7 @@ export default async function OnboardingPage() {
           borderRadius: 12, padding: '14px 18px', marginBottom: 18,
           fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.5,
         }}>
-          <strong style={{ color: 'var(--red)' }}>Short by {shortBy} chatter{shortBy === 1 ? '' : 's'}</strong> ({Math.ceil(shortBy / 4)} team{shortBy === 1 ? '' : 's'}) to cover the upcoming pages.
-          Either pull more from training, slow the onboarding cadence, or pair smaller pages. <Link href="/standby" style={{ color: 'var(--blue)' }}>View standby</Link> · <Link href="/pipeline" style={{ color: 'var(--blue)' }}>Pipeline</Link>
+          <strong style={{ color: 'var(--red)' }}>Short by {shortBy} chatter{shortBy === 1 ? '' : 's'}</strong> after accounting for chatters already pulled from other pages. Either pull more from training, slow the onboarding cadence, or pair smaller pages. <Link href="/standby" style={{ color: 'var(--blue)' }}>View standby</Link> · <Link href="/pipeline" style={{ color: 'var(--blue)' }}>Pipeline</Link>
         </div>
       )}
 
@@ -178,7 +181,7 @@ function HeaderRow() {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
+      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 0.65fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
       gap: 14, padding: '10px 4px',
       borderBottom: '1px solid var(--border)',
       fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 600,
@@ -186,9 +189,10 @@ function HeaderRow() {
       <div>Model</div>
       <div>Start</div>
       <div>Revenue</div>
+      <div>Pod · Team</div>
       <div>Board</div>
       <div>Teams</div>
-      <div style={{ textAlign: 'right' }}>Chatters</div>
+      <div style={{ textAlign: 'right' }}>Still need</div>
     </div>
   )
 }
@@ -196,10 +200,11 @@ function HeaderRow() {
 function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean }) {
   const dayChip = dayChipColor(model.daysUntilStart)
   const paired = model.teamsNeeded === 0 && (model.revenue ?? 0) > 0
+  const stillColor = model.chattersStillNeeded === 0 ? 'var(--green)' : model.chattersStillNeeded > 0 ? 'var(--blue)' : 'var(--text-4)'
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
+      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 0.65fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
       alignItems: 'center', gap: 14,
       padding: '14px 4px',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
@@ -218,6 +223,9 @@ function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean
         }}>{startLabel(model.start_date, model.daysUntilStart)}</span>
       </div>
       <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)' }}>{revenueLabel(model.revenue)}</div>
+      <div style={{ fontSize: 11.5, fontFamily: 'monospace', color: model.pod || model.team ? 'var(--text-2)' : 'var(--text-4)' }}>
+        {model.pod || model.team ? `${model.pod ?? '—'} · ${model.team ?? '—'}` : <span style={{ fontStyle: 'italic' }}>not scheduled</span>}
+      </div>
       <div style={{ fontSize: 11.5, color: 'var(--text-2)', fontFamily: 'monospace' }}>{model.board || <span style={{ color: 'var(--text-4)', fontStyle: 'italic' }}>—</span>}</div>
       {paired ? (
         <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -230,8 +238,13 @@ function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean
         </div>
       ) : (
         <>
-          <div style={{ fontFamily: 'monospace', fontSize: 13, color: model.teamsNeeded > 0 ? 'var(--text)' : 'var(--text-4)' }}>{model.teamsNeeded || '—'}</div>
-          <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: model.chattersNeeded > 0 ? 'var(--blue)' : 'var(--text-4)', textAlign: 'right' }}>{model.chattersNeeded || '—'}</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)' }}>{model.teamsNeeded}</div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: stillColor, lineHeight: 1 }}>{model.chattersStillNeeded}</div>
+            <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--text-4)', marginTop: 3 }}>
+              {model.chattersAlreadyAssigned} / {model.chattersNeeded} assigned
+            </div>
+          </div>
         </>
       )}
     </div>

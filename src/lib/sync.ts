@@ -4,13 +4,21 @@
  */
 
 import { createAdminClient } from './supabase/admin'
-import { fetchAllBoards, fetchModelBoard, type ParsedItem, type ParsedModel } from './monday'
+import {
+  fetchAllBoards,
+  fetchModelBoard,
+  fetchPageAssignmentBoard,
+  type ParsedItem,
+  type ParsedModel,
+  type ParsedPageAssignment,
+} from './monday'
 import { detectTrack, normalizeStage, type CanonicalStage } from './stages'
 
 export type SyncResult = {
   syncRunId: string
   candidatesSynced: number
   modelsSynced: number
+  pageAssignmentsSynced: number
   transitionsRecorded: number
   durationMs: number
   fetchMs: number
@@ -34,9 +42,10 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
 
   try {
     const tFetch = Date.now()
-    const [boards, modelBoard] = await Promise.all([
+    const [boards, modelBoard, assignmentBoard] = await Promise.all([
       fetchAllBoards(),
       fetchModelBoard(),
+      fetchPageAssignmentBoard(),
     ])
     const fetchMs = Date.now() - tFetch
 
@@ -144,6 +153,20 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       modelsSynced = modelRows.length
     }
 
+    // Chatter schedule board (page assignments). Drives onboarding deficit math.
+    let pageAssignmentsSynced = 0
+    if (assignmentBoard) {
+      const rows = assignmentBoard.items.map(a => buildPageAssignmentUpsertRow(a))
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK)
+        const { error: assignErr } = await supabase
+          .from('page_assignments')
+          .upsert(slice, { onConflict: 'monday_item_id' })
+        if (assignErr) throw new Error(`Page assignment upsert failed at offset ${i}: ${assignErr.message}`)
+      }
+      pageAssignmentsSynced = rows.length
+    }
+
     const finishedAt = new Date()
     await supabase
       .from('sync_runs')
@@ -159,6 +182,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       syncRunId,
       candidatesSynced: rowsToUpsert.length,
       modelsSynced,
+      pageAssignmentsSynced,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       fetchMs,
@@ -176,6 +200,23 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       })
       .eq('id', syncRunId)
     throw err
+  }
+}
+
+function buildPageAssignmentUpsertRow(a: ParsedPageAssignment): Record<string, unknown> {
+  return {
+    monday_item_id: a.monday_item_id,
+    monday_board_id: a.boardId,
+    group_title: a.group_title,
+    pod: a.pod,
+    team: a.team,
+    page_name: a.page_name,
+    shift_name: a.shift_name,
+    chatter_name: a.chatter_name,
+    monday_created_at: a.monday_created_at,
+    monday_updated_at: a.monday_updated_at,
+    last_synced_at: new Date().toISOString(),
+    raw_data: a.raw_data,
   }
 }
 
