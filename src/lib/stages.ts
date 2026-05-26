@@ -41,6 +41,7 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
 
   // Onboarding / pending-week-1
   'PENDING- DISCORD ONBOARDING': 'pending_onboarding',
+  'PENDING- DISCORD ONBOARDING EXP': 'pending_onboarding',
   'PENDING - DISCORD ONBOARDING(EXP)': 'pending_onboarding',
   'PENDING WEEK 1': 'pending_week_1',
 

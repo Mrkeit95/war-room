@@ -12,6 +12,7 @@ const pageTitles: Record<string, string> = {
   '/departments/eu': 'Europe',
   '/departments/sa': 'South America',
   '/departments/uk': 'United Kingdom',
+  '/standby': 'Standby',
   '/top-performers': 'Top performers',
   '/at-risk': 'At risk',
   '/activity': 'Activity log',

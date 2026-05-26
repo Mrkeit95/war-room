@@ -333,7 +333,15 @@ function stripCreated(row: BriefingCandidate & { monday_created_at?: string | nu
 export type Alert = {
   id: string
   severity: 'critical' | 'warning' | 'info'
-  type: 'weak_in_advanced_training' | 'weak_in_early_training' | 'idle_early_stage' | 'long_idle' | 'new_top_tier' | 'stage_bottleneck'
+  type:
+    | 'weak_in_advanced_training'
+    | 'weak_in_early_training'
+    | 'idle_early_stage'
+    | 'long_idle'
+    | 'new_top_tier'
+    | 'stage_bottleneck'
+    | 'standby_unassigned'
+    | 'pto_overdue'
   title: string
   meta: string
   region: Region
@@ -347,10 +355,17 @@ export type Alert = {
  */
 export async function getCurrentAlerts(): Promise<Alert[]> {
   const supabase = createAdminClient()
-  type Row = { id: string; name: string; region: Region; tier: string | null; current_stage: CanonicalStage; current_group_title: string | null; assigned_manager: string | null; monday_updated_at: string | null; monday_created_at: string | null }
+  type Row = {
+    id: string; name: string; region: Region; tier: string | null;
+    current_stage: CanonicalStage; current_group_title: string | null;
+    assigned_manager: string | null;
+    monday_updated_at: string | null; monday_created_at: string | null;
+    page_assignment: string | null; board_assignment: string | null;
+    current_stage_entered_at: string | null;
+  }
   const data = await fetchAllPaged<Row>((from, to) =>
     supabase.from('candidates')
-      .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_updated_at, monday_created_at')
+      .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_updated_at, monday_created_at, page_assignment, board_assignment, current_stage_entered_at')
       .neq('current_stage', 'offboarded')
       .range(from, to)
   )
@@ -413,6 +428,41 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
         meta: `${c.region}${mgr} — chase, schedule, or close`,
         region: c.region, candidateId: c.id, candidateName: c.name,
       })
+    }
+
+    // Standby SLA — chatter in standby with no BOARD assigned
+    if (c.current_stage === 'standby') {
+      const enteredAt = c.current_stage_entered_at ? new Date(c.current_stage_entered_at).getTime() : updated
+      const hoursIn = Math.max(0, Math.floor((now - enteredAt) / 3_600_000))
+      const noBoard = !c.board_assignment || c.board_assignment.trim() === ''
+      if (noBoard && hoursIn >= 24) {
+        const sev: Alert['severity'] = hoursIn >= 48 ? 'critical' : 'warning'
+        const pageNote = c.page_assignment ? `on page ${c.page_assignment}` : 'no page either'
+        alerts.push({
+          id: `standby_unassigned:${c.id}`,
+          severity: sev,
+          type: 'standby_unassigned',
+          title: `${c.name} · ${hoursIn}h in standby, no BOARD assigned`,
+          meta: `${c.region}${mgr} · ${pageNote} — ${sev === 'critical' ? 'losing them, assign now' : 'assign within 24h'}`,
+          region: c.region, candidateId: c.id, candidateName: c.name,
+        })
+      }
+    }
+
+    // PTO 2-week rule
+    if (c.current_stage === 'pto') {
+      const enteredAt = c.current_stage_entered_at ? new Date(c.current_stage_entered_at).getTime() : updated
+      const daysIn = Math.max(0, Math.floor((now - enteredAt) / 86_400_000))
+      if (daysIn >= 14) {
+        alerts.push({
+          id: `pto_overdue:${c.id}`,
+          severity: 'critical',
+          type: 'pto_overdue',
+          title: `${c.name} · ${daysIn} days in Personal Time Off`,
+          meta: `${c.region}${mgr} — 2 weeks reached, time to let go`,
+          region: c.region, candidateId: c.id, candidateName: c.name,
+        })
+      }
     }
 
     // New Tier 4 in last 24h = info spotlight

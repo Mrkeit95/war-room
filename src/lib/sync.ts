@@ -75,11 +75,13 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
         const prev = prevByMondayId.get(item.monday_item_id)
         let stageEnteredAt: string
         if (prev) {
-          if (prev.current_stage === stage && prev.current_stage_entered_at) {
-            // Stage unchanged → preserve existing entry timestamp
-            stageEnteredAt = prev.current_stage_entered_at
+          if (prev.current_stage === stage) {
+            // Stage unchanged — preserve existing entry if we have it, else backfill
+            // using monday_updated_at (best proxy for staleness) so post-migration
+            // candidates don't all look "just entered" on the first sync.
+            stageEnteredAt = prev.current_stage_entered_at ?? item.monday_updated_at ?? item.monday_created_at ?? nowIso
           } else {
-            // Stage changed (or never recorded) → enters this stage now
+            // Real stage transition → entered this stage now
             stageEnteredAt = nowIso
           }
         } else {
