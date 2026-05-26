@@ -51,22 +51,37 @@ export function daysUntil(startDate: string | null | undefined, now: Date = new 
   return Math.round((start - today) / 86_400_000)
 }
 
+// Window for what counts as "upcoming." The current onboarding batch on Monday
+// lives in a date-range group at the top of the board ("05/25 - 05/28"). Pages
+// in that batch have start dates spanning today through ~4 weeks out. Anything
+// older than 3 days ago is an archive row regardless of status.
+const UPCOMING_WINDOW_BEHIND_DAYS = 3
+const UPCOMING_WINDOW_AHEAD_DAYS = 45
+
+function isoDay(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
 /**
- * Models we're onboarding next. Excludes anything explicitly marked ACTIVE
- * (already live). Models with no start date are kept but float to the bottom.
- * Sub-$40k pages are still listed (user wants to see them) but show 0 teams.
+ * Models we're onboarding next. A model is "upcoming" if its start date sits
+ * inside the planning window AND it isn't already marked ACTIVE.
  */
 export async function getUpcomingModels(): Promise<ModelWithCapacity[]> {
   const supabase = createAdminClient()
+  const now = new Date()
+  const fromDate = isoDay(new Date(now.getTime() - UPCOMING_WINDOW_BEHIND_DAYS * 86_400_000))
+  const toDate = isoDay(new Date(now.getTime() + UPCOMING_WINDOW_AHEAD_DAYS * 86_400_000))
+
   const { data, error } = await supabase
     .from('models')
     .select('id, monday_item_id, name, agency, page_type, revenue, start_date, board, ae, status, telegram_group, marketing, group_title')
+    .gte('start_date', fromDate)
+    .lte('start_date', toDate)
     .or('status.is.null,status.neq.ACTIVE')
-    .order('start_date', { ascending: true, nullsFirst: false })
-    .limit(200)
+    .order('start_date', { ascending: true })
+    .limit(100)
   if (error) throw new Error(`getUpcomingModels: ${error.message}`)
 
-  const now = new Date()
   return (data ?? []).map(m => ({
     ...(m as Model),
     teamsNeeded: teamsForRevenue(m.revenue),
