@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import SegmentLink from '@/components/SegmentLink'
 import CandidateLink from '@/components/CandidateLink'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
@@ -285,11 +286,13 @@ function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: bool
       {n}
     </span>
   )
-  return (
+  const isClickable = manager.name !== 'Unassigned'
+  const content = (
     <div style={{
       display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)',
       alignItems: 'center', gap: 12, padding: '11px 0',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
+      cursor: isClickable ? 'pointer' : 'default',
     }}>
       <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.name}</span>
       <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{manager.inPipeline.toLocaleString()}</span>
@@ -300,6 +303,9 @@ function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: bool
       {cellNum(manager.ungraded)}
     </div>
   )
+  return isClickable
+    ? <Link href={`/candidates?manager=${encodeURIComponent(manager.name)}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{content}</Link>
+    : content
 }
 
 function KpiCard({ label, value, meta, color, segment }: { label: string; value: string; meta: string; color?: string; segment?: string }) {
