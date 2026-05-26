@@ -1,6 +1,7 @@
+import Link from 'next/link'
 import BriefingReminders from '@/components/BriefingReminders'
 import CandidateLink from '@/components/CandidateLink'
-import { getBriefingData, getLastSyncedAt, type BriefingCandidate } from '@/lib/db'
+import { getBriefingData, getCurrentAlerts, getLastSyncedAt, type Alert, type BriefingCandidate } from '@/lib/db'
 import { tierDisplay } from '@/lib/candidates'
 
 export const dynamic = 'force-dynamic'
@@ -10,12 +11,16 @@ export default async function BriefingPage() {
 
   let data: Awaited<ReturnType<typeof getBriefingData>> | null = null
   let lastSyncedAt: string | null = null
+  let alerts: Alert[] = []
   let error: string | null = null
   try {
-    ;[data, lastSyncedAt] = await Promise.all([getBriefingData(), getLastSyncedAt()])
+    ;[data, lastSyncedAt, alerts] = await Promise.all([getBriefingData(), getLastSyncedAt(), getCurrentAlerts()])
   } catch (err) {
     error = err instanceof Error ? err.message : String(err)
   }
+
+  const standbyAlerts = alerts.filter(a => a.type === 'standby_unassigned')
+  const ptoAlerts = alerts.filter(a => a.type === 'pto_overdue')
 
   const narrative = data
     ? buildNarrative(data)
@@ -46,6 +51,40 @@ export default async function BriefingPage() {
 
       {data && (
         <>
+          {/* Standby SLA — most operationally urgent, surfaces first */}
+          {standbyAlerts.length > 0 && (
+            <Section title="Standby — needs page assignment today">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+                {standbyAlerts.length} {standbyAlerts.length === 1 ? 'chatter is' : 'chatters are'} on standby with no BOARD assigned. They&apos;ll quit if they sit too long.
+                {' '}<Link href="/standby" style={{ color: 'var(--text-3)' }}>See all →</Link>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {standbyAlerts.slice(0, 10).map((a, i) => (
+                  <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
+                ))}
+                {standbyAlerts.length > 10 && (
+                  <div style={{ fontSize: 11.5, color: 'var(--text-4)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>
+                    +{standbyAlerts.length - 10} more on /standby
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
+
+          {/* PTO 2-week rule */}
+          {ptoAlerts.length > 0 && (
+            <Section title="Personal Time Off — decision time">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+                {ptoAlerts.length} {ptoAlerts.length === 1 ? 'person has' : 'people have'} been in PTO for 2+ weeks. Time to let go.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {ptoAlerts.map((a, i) => (
+                  <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
+                ))}
+              </div>
+            </Section>
+          )}
+
           {/* The numbers */}
           <Section title="The numbers">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
@@ -166,6 +205,30 @@ function CandidateRow({ candidate, num, accent }: { candidate: BriefingCandidate
       </div>
     </CandidateLink>
   )
+}
+
+function AlertRow({ alert, num }: { alert: Alert; num: string }) {
+  const accent = alert.severity === 'critical' ? 'var(--red)' : alert.severity === 'warning' ? 'var(--amber)' : 'var(--yellow)'
+  const content = (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+      padding: '14px 18px', display: 'flex', gap: 14, alignItems: 'center',
+      borderLeft: `2px solid ${accent}`, cursor: alert.candidateId ? 'pointer' : 'default',
+    }}>
+      <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-4)', width: 18, flexShrink: 0 }}>{num}</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, marginBottom: 2 }}>{alert.title}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{alert.meta}</div>
+      </div>
+      <span style={{
+        fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600,
+        padding: '3px 8px', borderRadius: 5, whiteSpace: 'nowrap',
+        background: alert.severity === 'critical' ? 'rgba(239,68,68,0.10)' : 'rgba(251,191,36,0.10)',
+        color: accent,
+      }}>{alert.severity}</span>
+    </div>
+  )
+  return alert.candidateId ? <CandidateLink id={alert.candidateId} block>{content}</CandidateLink> : content
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
