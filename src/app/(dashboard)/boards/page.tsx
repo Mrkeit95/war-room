@@ -180,12 +180,13 @@ function DebugPanel({ layoutRows, unmappedTeams }: { layoutRows: BoardLayoutDebu
 
 function BoardCard({ board }: { board: BoardEntry }) {
   const ae = BOARD_TO_AE[board.board.toUpperCase()] ?? null
-  const isUnassigned = board.board === 'Unassigned'
+  const isUnmapped = board.board === 'Unmapped'
+  const empty = board.podCount === 0
   return (
     <Link href={`/boards/${slugifyBoard(board.board)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{
         background: 'var(--surface)',
-        border: `1px solid ${isUnassigned ? 'rgba(251,191,36,0.28)' : 'var(--border)'}`,
+        border: `1px solid ${isUnmapped ? 'rgba(251,191,36,0.28)' : 'var(--border)'}`,
         borderRadius: 14, padding: '20px 22px',
         cursor: 'pointer', height: '100%',
         transition: 'border-color 120ms',
@@ -194,13 +195,18 @@ function BoardCard({ board }: { board: BoardEntry }) {
           {board.board}
         </div>
         <div style={{ fontSize: 13.5, color: ae ? 'var(--text)' : 'var(--text-4)', fontWeight: 500, marginBottom: 18 }}>
-          {ae ?? (isUnassigned ? 'No board on chatter records' : '—')}
+          {ae ?? (isUnmapped ? 'Teams not yet on any AE board' : '—')}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
           <Stat label="Pods" value={board.podCount} />
           <Stat label="Pages" value={board.pageCount} />
           <Stat label="Chatters" value={board.chatterCount} />
         </div>
+        {empty && !isUnmapped && (
+          <div style={{ marginTop: 12, fontSize: 10.5, color: 'var(--amber)', lineHeight: 1.5, fontStyle: 'italic' }}>
+            Layout exists but no chatter-schedule teams match its pod/team values. See debug panel.
+          </div>
+        )}
       </div>
     </Link>
   )
