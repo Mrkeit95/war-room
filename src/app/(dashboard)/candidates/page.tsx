@@ -21,8 +21,19 @@ type Row = {
 type Filters = {
   manager?: string
   region?: string
-  bucket?: string
+  bucket?: string         // comma-separated supported: "pending,scheduled"
+  board?: string          // BOARD 1 / BOARD 2 / TRAINING BOARD / "none" for blank
   status?: 'pipeline' | 'offboarded' | 'all'
+}
+
+const STAGES_BY_BUCKET: Record<string, CanonicalStage[]> = {
+  typeform: ['typeform'],
+  passed: ['passed_typeform'],
+  pending: ['pending_interview'],
+  scheduled: ['scheduled_interview', 'pending_onboarding'],
+  training: ['pending_week_1', 'week_1_training', 'week_2_training', 'week_3_training', 'training_board'],
+  standby: ['pool', 'standby'],
+  active: ['active', 'promoted', 'pto'],
 }
 
 async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyncedAt: string | null; totalCount: number } | { error: string }> {
@@ -39,18 +50,17 @@ async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyn
     if (filters.manager) q = q.eq('assigned_manager', filters.manager)
     if (filters.region) q = q.eq('region', filters.region)
     if (filters.bucket) {
-      // Map bucket to canonical stages
-      const stagesByBucket: Record<string, CanonicalStage[]> = {
-        typeform: ['typeform'],
-        passed: ['passed_typeform'],
-        pending: ['pending_interview'],
-        scheduled: ['scheduled_interview', 'pending_onboarding'],
-        training: ['pending_week_1', 'week_1_training', 'week_2_training', 'week_3_training', 'training_board'],
-        standby: ['pool', 'standby'],
-        active: ['active', 'promoted', 'pto'],
+      const bucketKeys = filters.bucket.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+      const stages: CanonicalStage[] = []
+      for (const b of bucketKeys) {
+        const s = STAGES_BY_BUCKET[b]
+        if (s) stages.push(...s)
       }
-      const stages = stagesByBucket[filters.bucket]
-      if (stages) q = q.in('current_stage', stages)
+      if (stages.length > 0) q = q.in('current_stage', stages)
+    }
+    if (filters.board) {
+      if (filters.board.toLowerCase() === 'none') q = q.is('board_assignment', null)
+      else q = q.eq('board_assignment', filters.board)
     }
 
     q = q.order('monday_updated_at', { ascending: false, nullsFirst: false }).limit(500)
@@ -76,7 +86,7 @@ function tierBadge(tier: string | null) {
   )
 }
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string; status?: string }> }) {
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string; board?: string; status?: string }> }) {
   const params = await searchParams
   const statusRaw = params.status?.toLowerCase()
   const status: Filters['status'] = statusRaw === 'offboarded' || statusRaw === 'all' ? statusRaw : undefined
@@ -84,6 +94,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
     manager: params.manager?.trim() || undefined,
     region: params.region?.toUpperCase() || undefined,
     bucket: params.bucket?.toLowerCase() || undefined,
+    board: params.board?.trim() || undefined,
     status,
   }
   const result = await fetchCandidates(filters)
@@ -215,11 +226,12 @@ function ViewToggle({ label, href, active }: { label: string; href: string; acti
   )
 }
 
-function buildHref(current: { manager?: string; region?: string; bucket?: string; status?: string }, override: { status?: string | undefined }): string {
+function buildHref(current: { manager?: string; region?: string; bucket?: string; board?: string; status?: string }, override: { status?: string | undefined }): string {
   const params = new URLSearchParams()
   if (current.manager) params.set('manager', current.manager)
   if (current.region) params.set('region', current.region)
   if (current.bucket) params.set('bucket', current.bucket)
+  if (current.board) params.set('board', current.board)
   const status = 'status' in override ? override.status : current.status
   if (status) params.set('status', status)
   const qs = params.toString()

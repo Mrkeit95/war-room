@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
 import { gradeBg, gradeColors } from '@/lib/candidates'
 import { getDashboardStats, listCandidates, type DbCandidate } from '@/lib/db'
@@ -70,9 +71,16 @@ export default async function PipelinePage() {
                   <div style={{ color: 'var(--text-4)', fontSize: 11, padding: '8px 0', fontStyle: 'italic' }}>No visible candidates</div>
                 )}
                 {count > cards.length && (
-                  <div style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>
-                    +{(count - cards.length).toLocaleString()} more
-                  </div>
+                  <Link
+                    href={`/candidates?bucket=${stage.key}`}
+                    style={{
+                      fontSize: 11, color: 'var(--text-3)', textAlign: 'center', padding: '8px 0',
+                      fontStyle: 'italic', textDecoration: 'none', display: 'block',
+                      borderRadius: 6, background: 'var(--surface-2)', marginTop: 2,
+                    }}
+                  >
+                    +{(count - cards.length).toLocaleString()} more →
+                  </Link>
                 )}
               </div>
             </div>

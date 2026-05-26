@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import CandidateLink from '@/components/CandidateLink'
 import { tierDisplay } from '@/lib/candidates'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -101,10 +102,10 @@ export default async function StandbyPage() {
           {Object.entries(BOARD_TO_AE).map(([board, ae]) => {
             const count = rows.filter(r => r.row.board_assignment?.trim().toUpperCase() === board).length
             return (
-              <BoardTile key={board} board={board} ae={ae} count={count} />
+              <BoardTile key={board} board={board} ae={ae} count={count} href={`/candidates?board=${encodeURIComponent(board)}`} />
             )
           })}
-          <BoardTile board="No BOARD yet" ae="(all AEs / Keit)" count={noBoardRows.length} tone="warn" />
+          <BoardTile board="No BOARD yet" ae="(all AEs / Keit)" count={noBoardRows.length} tone="warn" href="/candidates?bucket=standby&board=none" />
         </div>
       </Panel>
 
@@ -132,9 +133,12 @@ export default async function StandbyPage() {
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {settled.slice(0, 30).map((r, i) => <StandbyRow key={r.row.id} row={r.row} hours={r.hours} isLast={i === Math.min(settled.length, 30) - 1} />)}
             {settled.length > 30 && (
-              <div style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'center', padding: '10px 0 0', fontStyle: 'italic' }}>
-                +{settled.length - 30} more
-              </div>
+              <Link href="/candidates?bucket=standby" style={{
+                fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', padding: '10px 0',
+                fontStyle: 'italic', textDecoration: 'none', display: 'block', marginTop: 4,
+              }}>
+                +{settled.length - 30} more — see full candidates list →
+              </Link>
             )}
           </div>
         </Panel>
@@ -152,17 +156,19 @@ function StatCard({ label, value, color }: { label: string; value: number; color
   )
 }
 
-function BoardTile({ board, ae, count, tone }: { board: string; ae: string; count: number; tone?: 'warn' }) {
-  return (
+function BoardTile({ board, ae, count, tone, href }: { board: string; ae: string; count: number; tone?: 'warn'; href?: string }) {
+  const inner = (
     <div style={{
       background: 'var(--surface-2)', border: `1px solid ${tone === 'warn' && count > 0 ? 'rgba(251,191,36,0.4)' : 'var(--border)'}`,
       borderRadius: 8, padding: '14px 12px',
+      cursor: href ? 'pointer' : 'default', height: '100%',
     }}>
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-3)', fontWeight: 600, marginBottom: 6 }}>{board}</div>
       <div style={{ fontSize: 11.5, color: 'var(--text-2)', marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ae}</div>
       <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, lineHeight: 1, color: tone === 'warn' && count > 0 ? 'var(--amber)' : 'var(--text)' }}>{count.toLocaleString()}</div>
     </div>
   )
+  return href ? <Link href={href} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{inner}</Link> : inner
 }
 
 function StandbyRow({ row, hours, isLast }: { row: Row; hours: number; isLast: boolean }) {

@@ -62,7 +62,10 @@ async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number;
   return result
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ region?: string }> }) {
+  const params = searchParams ? await searchParams : {}
+  const regionFilterRaw = params.region?.toUpperCase()
+  const regionFilter: Region | null = regionFilterRaw && ['PH', 'EU', 'SA', 'UK'].includes(regionFilterRaw) ? regionFilterRaw as Region : null
   let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null
   let lastSyncedAt: string | null = null
   let topPerformers: CandidateSummary[] = []
@@ -81,9 +84,10 @@ export default async function DashboardPage() {
     dataError = err instanceof Error ? err.message : String(err)
   }
 
-  const critical = alerts.filter(a => a.severity === 'critical')
-  const warning = alerts.filter(a => a.severity === 'warning')
-  const info = alerts.filter(a => a.severity === 'info')
+  const visibleAlerts = regionFilter ? alerts.filter(a => a.region === regionFilter) : alerts
+  const critical = visibleAlerts.filter(a => a.severity === 'critical')
+  const warning = visibleAlerts.filter(a => a.severity === 'warning')
+  const info = visibleAlerts.filter(a => a.severity === 'info')
 
   const phShare = stats ? (() => {
     const regionTotals = ['PH', 'EU', 'SA', 'UK'].map(r => {
@@ -209,13 +213,20 @@ export default async function DashboardPage() {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
         {/* Action feed — rule-derived alerts */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Today · What needs you</div>
-            <div style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'monospace' }}>{alerts.length} {alerts.length === 1 ? 'item' : 'items'}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'monospace' }}>{visibleAlerts.length} {visibleAlerts.length === 1 ? 'item' : 'items'}</div>
           </div>
-          {alerts.length === 0 ? (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 18, flexWrap: 'wrap' }}>
+            <RegionChip label="All" href="/" active={!regionFilter} />
+            <RegionChip label="🇵🇭 PH" href="/?region=PH" active={regionFilter === 'PH'} />
+            <RegionChip label="🇪🇺 EU" href="/?region=EU" active={regionFilter === 'EU'} />
+            <RegionChip label="🇧🇷 SA" href="/?region=SA" active={regionFilter === 'SA'} />
+            <RegionChip label="🇬🇧 UK" href="/?region=UK" active={regionFilter === 'UK'} />
+          </div>
+          {visibleAlerts.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic', padding: '10px 0' }}>
-              Nothing flagged. No weak candidates in advanced training, no long-idle items, no bottlenecks.
+              {regionFilter ? `Nothing flagged in ${regionFilter}.` : 'Nothing flagged. No weak candidates in advanced training, no long-idle items, no bottlenecks.'}
             </div>
           ) : (
             <>
@@ -345,5 +356,16 @@ function AlertGroup({ label, accent, badgeBg, alerts }: { label: string; accent:
         )}
       </div>
     </>
+  )
+}
+
+function RegionChip({ label, href, active }: { label: string; href: string; active: boolean }) {
+  return (
+    <Link href={href} style={{
+      fontSize: 11, padding: '4px 10px', borderRadius: 5, textDecoration: 'none', fontWeight: 500,
+      background: active ? 'var(--surface-2)' : 'transparent',
+      color: active ? 'var(--text)' : 'var(--text-3)',
+      border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+    }}>{label}</Link>
   )
 }

@@ -63,9 +63,13 @@ export default async function BriefingPage() {
                   <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
                 ))}
                 {standbyAlerts.length > 10 && (
-                  <div style={{ fontSize: 11.5, color: 'var(--text-4)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>
-                    +{standbyAlerts.length - 10} more on /standby
-                  </div>
+                  <Link href="/standby" style={{
+                    fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', padding: '8px 0',
+                    fontStyle: 'italic', textDecoration: 'none', display: 'block',
+                    borderRadius: 6, background: 'var(--surface)',
+                  }}>
+                    +{standbyAlerts.length - 10} more on /standby →
+                  </Link>
                 )}
               </div>
             </Section>
@@ -89,9 +93,9 @@ export default async function BriefingPage() {
           <Section title="The numbers">
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
               <NumberCard value={data.newLast24h} label="New (24h)" />
-              <NumberCard value={data.interviews} label="In interviews" />
-              <NumberCard value={data.atRiskTotal} label="At risk" color="var(--red)" />
-              <NumberCard value={data.topTierTotal} label="Top tier" color="var(--green)" />
+              <NumberCard value={data.interviews} label="In interviews" href="/?interviews=1" />
+              <NumberCard value={data.atRiskTotal} label="At risk" color="var(--red)" href="/at-risk" />
+              <NumberCard value={data.topTierTotal} label="Top tier" color="var(--green)" href="/top-performers" />
             </div>
           </Section>
 
@@ -168,13 +172,19 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function NumberCard({ value, label, color }: { value: number; label: string; color?: string }) {
-  return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 14, textAlign: 'center' }}>
+function NumberCard({ value, label, color, href }: { value: number; label: string; color?: string; href?: string }) {
+  const card = (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+      padding: 14, textAlign: 'center', cursor: href ? 'pointer' : 'default', height: '100%',
+    }}>
       <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1, marginBottom: 4, color: color || 'var(--text)' }}>{value.toLocaleString()}</div>
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-3)', fontWeight: 500 }}>{label}</div>
     </div>
   )
+  return href
+    ? <Link href={href} scroll={!href.startsWith('/?')} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{card}</Link>
+    : card
 }
 
 function CandidateRow({ candidate, num, accent }: { candidate: BriefingCandidate; num: string; accent: string }) {
