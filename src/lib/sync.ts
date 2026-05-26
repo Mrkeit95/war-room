@@ -36,18 +36,33 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
     const boards = await fetchAllBoards()
     const fetchMs = Date.now() - tFetch
 
-    // Snapshot existing candidates' current_stage so we can detect transitions
-    const { data: existing, error: existErr } = await supabase
-      .from('candidates')
-      .select('id, monday_item_id, current_stage')
-    if (existErr) throw new Error(`Read existing failed: ${existErr.message}`)
+    // Snapshot existing candidates' current_stage + stage entry time so we can detect transitions
+    // and preserve stage-entered-at for unchanged candidates.
+    type ExistingRow = { id: string; monday_item_id: string; current_stage: string; current_stage_entered_at: string | null }
+    const existingAll: ExistingRow[] = []
+    {
+      const PAGE = 1000
+      let from = 0
+      while (true) {
+        const { data, error: existErr } = await supabase
+          .from('candidates')
+          .select('id, monday_item_id, current_stage, current_stage_entered_at')
+          .range(from, from + PAGE - 1)
+        if (existErr) throw new Error(`Read existing failed: ${existErr.message}`)
+        if (!data || data.length === 0) break
+        existingAll.push(...(data as ExistingRow[]))
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+    }
 
-    const prevByMondayId = new Map<string, { id: string; current_stage: string }>()
-    for (const c of existing ?? []) prevByMondayId.set(c.monday_item_id, c as { id: string; current_stage: string })
+    const prevByMondayId = new Map<string, ExistingRow>()
+    for (const c of existingAll) prevByMondayId.set(c.monday_item_id, c)
 
     const transitions: { candidate_id: string; from_stage: string | null; to_stage: string }[] = []
     const rowsToUpsert: Record<string, unknown>[] = []
 
+    const nowIso = new Date().toISOString()
     for (const board of boards) {
       for (const item of board.items) {
         const stage = normalizeStage(item.group_title)
@@ -57,7 +72,21 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
           continue
         }
         const track = detectTrack(stage, item.group_title)
-        rowsToUpsert.push(buildUpsertRow(item, stage, track))
+        const prev = prevByMondayId.get(item.monday_item_id)
+        let stageEnteredAt: string
+        if (prev) {
+          if (prev.current_stage === stage && prev.current_stage_entered_at) {
+            // Stage unchanged → preserve existing entry timestamp
+            stageEnteredAt = prev.current_stage_entered_at
+          } else {
+            // Stage changed (or never recorded) → enters this stage now
+            stageEnteredAt = nowIso
+          }
+        } else {
+          // New candidate to us — best guess: when the Monday item was created
+          stageEnteredAt = item.monday_created_at ?? nowIso
+        }
+        rowsToUpsert.push(buildUpsertRow(item, stage, track, stageEnteredAt))
       }
     }
 
@@ -129,7 +158,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
   }
 }
 
-function buildUpsertRow(item: ParsedItem, stage: CanonicalStage, track: 'exp' | 'non_exp' | null): Record<string, unknown> {
+function buildUpsertRow(item: ParsedItem, stage: CanonicalStage, track: 'exp' | 'non_exp' | null, stageEnteredAt: string): Record<string, unknown> {
   return {
     monday_item_id: item.monday_item_id,
     monday_board_id: item.boardId,
@@ -146,8 +175,11 @@ function buildUpsertRow(item: ParsedItem, stage: CanonicalStage, track: 'exp' | 
     email: item.email,
     country: item.country,
     source: item.source,
+    page_assignment: item.page_assignment,
+    board_assignment: item.board_assignment,
     monday_created_at: item.monday_created_at,
     monday_updated_at: item.monday_updated_at,
+    current_stage_entered_at: stageEnteredAt,
     last_synced_at: new Date().toISOString(),
     raw_data: item.raw_data,
   }

@@ -5,6 +5,14 @@ import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
 import { tierDisplay, type Region } from '@/lib/candidates'
 import { getRegionStats, getStaleCandidates, type GroupSummary, type ManagerSummary, type StaleCandidate } from '@/lib/db'
 import { uiBucket } from '@/lib/stages'
+import {
+  OVERSEERS,
+  REGION_SOLE_OWNER,
+  displayName,
+  getSectionManagers,
+  isMainBoardManager,
+  type Overseer,
+} from '@/lib/manager_sections'
 
 type Lane = { title: string; meta: string; tone: 'ok' | 'warn' | 'bad'; tag?: string }
 
@@ -110,12 +118,23 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </div>
       </Panel>
 
-      {/* Stage detail — actual Monday groups */}
+      {/* Stage detail — actual Monday groups with section managers */}
       {inPipelineGroups.length > 0 && (
-        <Panel title="Stage detail · live Monday groups" style={{ marginBottom: 14 }}>
+        <Panel title="Stage detail · live Monday groups + section managers" style={{ marginBottom: 14 }}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {inPipelineGroups.map((g, i) => (
-              <StageDetailRow key={g.groupTitle} group={g} regionCode={regionCode} isLast={i === inPipelineGroups.length - 1} />
+              <StageDetailRow key={g.groupTitle} group={g} region={region} regionCode={regionCode} isLast={i === inPipelineGroups.length - 1} />
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {/* Overseers — PH only */}
+      {region === 'PH' && (
+        <Panel title="Overseers · cross-section ownership" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {OVERSEERS.map((o, i) => (
+              <OverseerRow key={o.name} overseer={o} isLast={i === OVERSEERS.length - 1} />
             ))}
           </div>
         </Panel>
@@ -183,7 +202,7 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
               <span style={{ textAlign: 'right' }}>—</span>
             </div>
             {stats.byManager.slice(0, MANAGER_DISPLAY_LIMIT).map((m, i) => (
-              <ManagerRow key={m.name} manager={m} isLast={i === Math.min(stats!.byManager.length, MANAGER_DISPLAY_LIMIT) - 1} />
+              <ManagerRow key={m.name} manager={m} region={region} isLast={i === Math.min(stats!.byManager.length, MANAGER_DISPLAY_LIMIT) - 1} />
             ))}
             {stats.byManager.length > MANAGER_DISPLAY_LIMIT && (
               <div style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'center', padding: '10px 0 0', fontStyle: 'italic' }}>
@@ -257,7 +276,7 @@ function StaleRow({ candidate, isLast }: { candidate: StaleCandidate; isLast: bo
   )
 }
 
-function StageDetailRow({ group, regionCode, isLast }: { group: GroupSummary; regionCode: string; isLast: boolean }) {
+function StageDetailRow({ group, region, regionCode, isLast }: { group: GroupSummary; region: Region; regionCode: string; isLast: boolean }) {
   const bucket = uiBucket(group.stage)
   const segment = bucket ? `${regionCode}:${bucket}` : null
   const accentByBucket: Record<string, string> = {
@@ -266,9 +285,10 @@ function StageDetailRow({ group, regionCode, isLast }: { group: GroupSummary; re
     training: 'var(--violet)', standby: 'var(--text-3)', active: 'var(--green)',
   }
   const accent = bucket ? accentByBucket[bucket] : 'var(--text-4)'
+  const { managers, shift } = getSectionManagers(region, group.groupTitle)
   const inner = (
     <div style={{
-      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1.4fr) auto auto',
       alignItems: 'center', gap: 14,
       padding: '12px 4px',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
@@ -277,6 +297,16 @@ function StageDetailRow({ group, regionCode, isLast }: { group: GroupSummary; re
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
         <span style={{ width: 6, height: 6, borderRadius: '50%', background: accent, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.groupTitle}</span>
+      </div>
+      <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {managers.length > 0 ? (
+          <div style={{ fontSize: 11.5, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {managers.map(displayName).join(' · ')}
+          </div>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--text-4)', fontStyle: 'italic' }}>main board</span>
+        )}
+        {shift && <span style={{ fontSize: 10.5, color: 'var(--text-4)' }}>{shift}</span>}
       </div>
       {bucket && (
         <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-4)', fontWeight: 500 }}>{bucket}</span>
@@ -287,13 +317,37 @@ function StageDetailRow({ group, regionCode, isLast }: { group: GroupSummary; re
   return segment ? <SegmentLink segment={segment} block>{inner}</SegmentLink> : <div>{inner}</div>
 }
 
-function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: boolean }) {
+function OverseerRow({ overseer, isLast }: { overseer: Overseer; isLast: boolean }) {
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 2fr)',
+      alignItems: 'center', gap: 14,
+      padding: '12px 4px',
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+    }}>
+      <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{overseer.display}</span>
+      <span style={{ fontSize: 12, color: 'var(--text-3)' }}>{overseer.role}</span>
+      <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+        {overseer.scope.map(s => (
+          <span key={s} style={{ fontSize: 10, padding: '2px 7px', borderRadius: 4, background: 'var(--surface-3)', color: 'var(--text-2)' }}>{s}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ManagerRow({ manager, region, isLast }: { manager: ManagerSummary; region: Region; isLast: boolean }) {
   const cellNum = (n: number, color?: string) => (
     <span style={{ fontFamily: 'monospace', fontSize: 12, textAlign: 'right', color: n > 0 ? (color || 'var(--text)') : 'var(--text-4)' }}>
       {n}
     </span>
   )
-  const isClickable = manager.name !== 'Unassigned'
+  const isUnassigned = manager.name === 'Unassigned'
+  const isClickable = !isUnassigned
+  const mainBoard = !isUnassigned && isMainBoardManager(region, manager.name)
+  const tag = isUnassigned ? null : mainBoard
+    ? <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'rgba(96,165,250,0.10)', color: 'var(--blue)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Main board</span>
+    : <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'rgba(167,139,250,0.12)', color: 'var(--violet)', fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.08em' }}>Section</span>
   const content = (
     <div style={{
       display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)',
@@ -301,7 +355,10 @@ function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: bool
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
       cursor: isClickable ? 'pointer' : 'default',
     }}>
-      <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.name}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+        <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{isUnassigned ? manager.name : displayName(manager.name)}</span>
+        {tag}
+      </div>
       <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{manager.inPipeline.toLocaleString()}</span>
       {cellNum(manager.t1, 'var(--red)')}
       {cellNum(manager.t2, 'var(--orange)')}

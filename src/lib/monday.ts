@@ -155,6 +155,8 @@ export type ParsedItem = {
   email: string | null
   country: string | null
   source: string | null
+  page_assignment: string | null
+  board_assignment: string | null
   monday_created_at: string | null
   monday_updated_at: string | null
   raw_data: MondayItem
@@ -169,6 +171,8 @@ export function parseItem(item: MondayItem, boardId: string, region: RegionCode)
   const email = findCol(item, 'Email')
   const country = findCol(item, 'Country')
   const source = findCol(item, 'Source')
+  const pageAssignment = findCol(item, 'Page Assignment')
+  const board = findCol(item, 'BOARD', 'Board')
 
   return {
     boardId,
@@ -184,6 +188,8 @@ export function parseItem(item: MondayItem, boardId: string, region: RegionCode)
     email: textOf(email),
     country: textOf(country),
     source: textOf(source),
+    page_assignment: textOf(pageAssignment),
+    board_assignment: textOf(board),
     monday_created_at: item.created_at,
     monday_updated_at: item.updated_at,
     raw_data: item,

@@ -8,15 +8,9 @@ export default function PhilippinesPage() {
       flag="🇵🇭"
       name="Philippines"
       regionCode="ph"
-      subtitle="Apple · Darla · Pauline (recruiters) + dedicated training teams"
+      subtitle="Recruiting: Pauline · Daireen · Apple. Training (Allyson Sam): Andrei + Jose (8am–4pm PHT), Pamela + Arjay (rotating EST), Prince + Gwyneth (rotating EST). AEs: Day (Board 1), Angie (Board 2), Iori (Board 3)."
       conversion={{ pct: 38, color: 'var(--amber)' }}
       conversionNote="conversion rate (placeholder)"
-      lanes={[
-        { title: 'Lane A · Week 1 · Joan', meta: '6 trainees · avg B+', tone: 'ok', tag: '81% pass' },
-        { title: 'Lane B · Week 1 · Mark', meta: '6 trainees · avg C', tone: 'warn', tag: '58% pass' },
-        { title: 'Training Board · Lyka', meta: '8 chatters · Shift 1', tone: 'ok' },
-        { title: 'Training Board · Andre', meta: '10 chatters · Shift 2', tone: 'ok' },
-      ]}
     />
   )
 }
