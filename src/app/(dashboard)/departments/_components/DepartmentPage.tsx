@@ -1,7 +1,8 @@
 import SegmentLink from '@/components/SegmentLink'
+import CandidateLink from '@/components/CandidateLink'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
 import { tierDisplay, type Region } from '@/lib/candidates'
-import { getRegionStats, type GroupSummary, type ManagerSummary } from '@/lib/db'
+import { getRegionStats, getStaleCandidates, type GroupSummary, type ManagerSummary, type StaleCandidate } from '@/lib/db'
 import { uiBucket } from '@/lib/stages'
 
 type Lane = { title: string; meta: string; tone: 'ok' | 'warn' | 'bad'; tag?: string }
@@ -26,9 +27,13 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
   const phase = getRegionPhase(region)
 
   let stats: Awaited<ReturnType<typeof getRegionStats>> | null = null
+  let stale: StaleCandidate[] = []
   let dataError: string | null = null
   try {
-    stats = await getRegionStats(region)
+    ;[stats, stale] = await Promise.all([
+      getRegionStats(region),
+      getStaleCandidates(region, 5, 15),
+    ])
   } catch (err) {
     dataError = err instanceof Error ? err.message : String(err)
   }
@@ -142,6 +147,20 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         )}
       </Panel>
 
+      {/* Stuck / stale candidates */}
+      {stale.length > 0 && (
+        <Panel title={`Stuck · ${stale.length} ${stale.length === 1 ? 'candidate' : 'candidates'} idle 5+ days`} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12.5, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+            Monday item not touched in 5+ days while still in an early stage. Worth a poke.
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {stale.map((c, i) => (
+              <StaleRow key={c.id} candidate={c} isLast={i === stale.length - 1} />
+            ))}
+          </div>
+        </Panel>
+      )}
+
       {/* Per-manager breakdown */}
       {stats && stats.byManager.length > 0 && (
         <Panel title={`By manager · ${stats.byManager.length} ${stats.byManager.length === 1 ? 'person' : 'people'}`} style={{ marginBottom: 14 }}>
@@ -194,6 +213,39 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </Panel>
       )}
     </div>
+  )
+}
+
+function StaleRow({ candidate, isLast }: { candidate: StaleCandidate; isLast: boolean }) {
+  const tier = tierDisplay(candidate.tier)
+  const stage = candidate.current_group_title ?? candidate.current_stage.replace(/_/g, ' ')
+  const daysColor = candidate.daysSinceUpdate >= 14 ? 'var(--red)' : candidate.daysSinceUpdate >= 8 ? 'var(--orange)' : 'var(--amber)'
+  return (
+    <CandidateLink id={candidate.id} block>
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', gap: 12, alignItems: 'center',
+        padding: '11px 4px',
+        borderBottom: isLast ? 'none' : '1px solid var(--border)',
+        cursor: 'pointer',
+      }}>
+        {tier ? (
+          <div style={{
+            width: 34, height: 22, borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontWeight: 700, fontSize: 10, fontFamily: 'monospace',
+            background: tier.bg, color: tier.color,
+          }}>{tier.label}</div>
+        ) : (
+          <div style={{ width: 34, height: 22, borderRadius: 4, background: 'var(--surface-3)' }} />
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{candidate.name}</div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {stage}{candidate.assigned_manager ? ` · ${candidate.assigned_manager}` : ''}
+          </div>
+        </div>
+        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: daysColor, whiteSpace: 'nowrap' }}>{candidate.daysSinceUpdate}d idle</span>
+      </div>
+    </CandidateLink>
   )
 }
 

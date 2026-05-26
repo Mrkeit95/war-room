@@ -300,6 +300,47 @@ function stripCreated(row: BriefingCandidate & { monday_created_at?: string | nu
   }
 }
 
+export type StaleCandidate = {
+  id: string
+  name: string
+  tier: string | null
+  current_stage: CanonicalStage
+  current_group_title: string | null
+  assigned_manager: string | null
+  monday_updated_at: string | null
+  daysSinceUpdate: number
+}
+
+/**
+ * Candidates in early/active stages whose Monday item hasn't been touched
+ * for `daysThreshold`+ days. Skips standby/active stages where staleness
+ * is expected. Uses monday_updated_at as the staleness signal.
+ */
+export async function getStaleCandidates(region: Region, daysThreshold = 5, limit = 15): Promise<StaleCandidate[]> {
+  const supabase = createAdminClient()
+  const cutoff = new Date(Date.now() - daysThreshold * 86_400_000).toISOString()
+  const stages: CanonicalStage[] = [
+    'typeform', 'passed_typeform',
+    'pending_interview', 'scheduled_interview', 'pending_onboarding',
+    'pending_week_1', 'week_1_training', 'week_2_training', 'week_3_training', 'training_board',
+  ]
+  const { data, error } = await supabase
+    .from('candidates')
+    .select('id, name, tier, current_stage, current_group_title, assigned_manager, monday_updated_at')
+    .eq('region', region)
+    .in('current_stage', stages)
+    .lt('monday_updated_at', cutoff)
+    .order('monday_updated_at', { ascending: true, nullsFirst: true })
+    .limit(limit)
+  if (error) throw new Error(`getStaleCandidates: ${error.message}`)
+  const now = Date.now()
+  return (data ?? []).map((r) => {
+    const row = r as { id: string; name: string; tier: string | null; current_stage: CanonicalStage; current_group_title: string | null; assigned_manager: string | null; monday_updated_at: string | null }
+    const days = row.monday_updated_at ? Math.floor((now - new Date(row.monday_updated_at).getTime()) / 86_400_000) : 999
+    return { ...row, daysSinceUpdate: days }
+  })
+}
+
 export async function getLastSyncedAt(): Promise<string | null> {
   const supabase = createAdminClient()
   const { data } = await supabase
