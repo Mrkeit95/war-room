@@ -326,8 +326,10 @@ const SCHEDULE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', '
  */
 export function parsePageGroupTitle(title: string | null): { pod: string | null; team: string | null; page_name: string | null } {
   if (!title) return { pod: null, team: null, page_name: null }
-  // Combined match: pod letter, optional dash, team (T# or TEAM #), rest of string.
-  const m = title.match(/^POD\s+(\S+)\s*[-—]?\s*(?:TEAM\s+|T)(\d+)\s*(.*)$/i)
+  // Pod token is alphanumeric only. A stray "-" right after the pod (e.g.
+  // "POD A-" instead of "POD A") gets absorbed by the optional dash separator
+  // before the team, so "POD A-" and "POD A" collapse to the same pod.
+  const m = title.match(/^POD\s+([A-Z0-9]+)\s*[-—]*\s*(?:TEAM\s+|T)(\d+)\s*(.*)$/i)
   if (m) {
     const page = (m[3] ?? '').trim()
     return {
@@ -336,7 +338,6 @@ export function parsePageGroupTitle(title: string | null): { pod: string | null;
       page_name: page.length > 0 ? page.toUpperCase() : null,
     }
   }
-  // Fallback: no pod/team detected — surface the whole title as the page label
   return { pod: null, team: null, page_name: title.trim().toUpperCase() || null }
 }
 
