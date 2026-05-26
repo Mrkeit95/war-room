@@ -12,6 +12,7 @@
  */
 
 import { createAdminClient } from './supabase/admin'
+import { parsePageGroupTitle, parseBoardGroup } from './monday'
 
 export type ShiftSlot = {
   shiftName: string                             // "MORNING SHIFT"
@@ -63,7 +64,8 @@ export function splitChatterNames(raw: string | null | undefined): string[] {
 export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   const supabase = createAdminClient()
 
-  // 1. Authoritative pod/team → board mapping.
+  // 1. Authoritative pod/team → board mapping. Re-parse at read time so the
+  //    flexible parser logic applies without waiting on a fresh sync.
   const { data: groupsRaw, error: gErr } = await supabase
     .from('board_groups')
     .select('board_name, pod, team, group_title')
@@ -71,8 +73,11 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   type GroupRow = { board_name: string; pod: string | null; team: string | null; group_title: string }
   const podTeamToBoard = new Map<string, string>()    // key: `${pod}|${team}` → board_name
   for (const row of (groupsRaw ?? []) as GroupRow[]) {
-    if (!row.pod || !row.team) continue
-    podTeamToBoard.set(`${row.pod.toUpperCase()}|${row.team.toUpperCase()}`, row.board_name)
+    const reparsed = parseBoardGroup(row.group_title)
+    const pod = (reparsed.pod ?? row.pod)?.toUpperCase() ?? null
+    const team = (reparsed.team ?? row.team)?.toUpperCase() ?? null
+    if (!pod || !team) continue
+    podTeamToBoard.set(`${pod}|${team}`, row.board_name)
   }
 
   // 1b. Build name → assigned_manager map from candidates (so we can label each chatter with their manager).
@@ -117,20 +122,25 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   }
   const teamMap = new Map<string, TeamAcc>()
   for (const row of assignments) {
-    if (!row.pod || !row.team) continue
-    const key = `${row.pod}|${row.team}`
+    // Re-parse at read time so we don't depend on the older parser baked into existing rows.
+    const reparsed = parsePageGroupTitle(row.group_title)
+    const pod = (reparsed.pod ?? row.pod)?.toUpperCase()
+    const team = (reparsed.team ?? row.team)?.toUpperCase()
+    const pageNameForRow = reparsed.page_name ?? row.page_name
+    if (!pod || !team) continue
+    const key = `${pod}|${team}`
     let acc = teamMap.get(key)
     if (!acc) {
       acc = {
-        pod: row.pod,
-        team: row.team,
-        groupTitle: row.group_title ?? `POD ${row.pod} - ${row.team}`,
+        pod,
+        team,
+        groupTitle: row.group_title ?? `POD ${pod} - ${team}`,
         pageNames: new Set(),
         chatters: new Map(),
       }
       teamMap.set(key, acc)
     }
-    for (const pageName of splitPipeNames(row.page_name)) {
+    for (const pageName of splitPipeNames(pageNameForRow)) {
       acc.pageNames.add(pageName)
     }
     for (const chatter of splitChatterNames(row.chatter_name)) {
@@ -280,49 +290,72 @@ export type UnmappedTeam = {
   chatterCount: number
 }
 
+export type UnparseableGroup = {
+  groupTitle: string
+  rowCount: number
+  chatterSample: string[]   // first few chatter names from this group, for visual confirmation
+}
+
 export async function getBoardsDebug(): Promise<{
   layoutRows: BoardLayoutDebugRow[]
   unmappedTeams: UnmappedTeam[]
+  unparseableGroups: UnparseableGroup[]
 }> {
   const supabase = createAdminClient()
 
-  // Layout rows from board_groups
+  // Layout rows from board_groups — re-parse at read time
   const { data: layoutRaw } = await supabase
     .from('board_groups')
     .select('board_name, group_title, pod, team')
     .order('board_name')
     .order('group_title')
   const layoutRows: BoardLayoutDebugRow[] = ((layoutRaw ?? []) as { board_name: string; group_title: string; pod: string | null; team: string | null }[])
-    .map(r => ({ boardName: r.board_name, groupTitle: r.group_title, pod: r.pod, team: r.team }))
+    .map(r => {
+      const re = parseBoardGroup(r.group_title)
+      return { boardName: r.board_name, groupTitle: r.group_title, pod: re.pod ?? r.pod, team: re.team ?? r.team }
+    })
 
-  // Build pod/team → board lookup
   const lookup = new Map<string, string>()
   for (const r of layoutRows) {
     if (r.pod && r.team) lookup.set(`${r.pod.toUpperCase()}|${r.team.toUpperCase()}`, r.boardName)
   }
 
-  // Chatter-schedule teams that didn't find a board
+  // Chatter-schedule rows — re-parse, then bucket: matched (skip), unmapped (pod+team but no board), unparseable (no pod or no team).
   const { data: assignRaw } = await supabase
     .from('page_assignments')
     .select('pod, team, page_name, group_title, chatter_name')
   type Row = { pod: string | null; team: string | null; page_name: string | null; group_title: string | null; chatter_name: string | null }
   const teamAcc = new Map<string, { pod: string; team: string; groupTitle: string; pageNames: Set<string>; chatters: Set<string> }>()
+  const unparseableAcc = new Map<string, { rowCount: number; chatters: Set<string> }>()
+
   for (const r of (assignRaw ?? []) as Row[]) {
-    if (!r.pod || !r.team) continue
-    const k = `${r.pod}|${r.team}`
+    const reparsed = parsePageGroupTitle(r.group_title)
+    const pod = (reparsed.pod ?? r.pod)?.toUpperCase()
+    const team = (reparsed.team ?? r.team)?.toUpperCase()
+    if (!pod || !team) {
+      const title = r.group_title ?? '(no title)'
+      let acc = unparseableAcc.get(title)
+      if (!acc) {
+        acc = { rowCount: 0, chatters: new Set() }
+        unparseableAcc.set(title, acc)
+      }
+      acc.rowCount += 1
+      for (const c of splitChatterNames(r.chatter_name)) acc.chatters.add(c)
+      continue
+    }
+    const k = `${pod}|${team}`
     let acc = teamAcc.get(k)
     if (!acc) {
-      acc = { pod: r.pod, team: r.team, groupTitle: r.group_title ?? '', pageNames: new Set(), chatters: new Set() }
+      acc = { pod, team, groupTitle: r.group_title ?? '', pageNames: new Set(), chatters: new Set() }
       teamAcc.set(k, acc)
     }
-    for (const p of splitPipeNames(r.page_name)) acc.pageNames.add(p)
+    for (const p of splitPipeNames(reparsed.page_name ?? r.page_name)) acc.pageNames.add(p)
     for (const c of splitChatterNames(r.chatter_name)) acc.chatters.add(c)
   }
 
   const unmappedTeams: UnmappedTeam[] = []
   for (const acc of teamAcc.values()) {
-    const k = `${acc.pod.toUpperCase()}|${acc.team.toUpperCase()}`
-    if (lookup.has(k)) continue
+    if (lookup.has(`${acc.pod}|${acc.team}`)) continue
     unmappedTeams.push({
       pod: acc.pod,
       team: acc.team,
@@ -333,5 +366,11 @@ export async function getBoardsDebug(): Promise<{
   }
   unmappedTeams.sort((a, b) => `${a.pod}${a.team}`.localeCompare(`${b.pod}${b.team}`))
 
-  return { layoutRows, unmappedTeams }
+  const unparseableGroups: UnparseableGroup[] = [...unparseableAcc.entries()].map(([groupTitle, acc]) => ({
+    groupTitle,
+    rowCount: acc.rowCount,
+    chatterSample: [...acc.chatters].slice(0, 5),
+  })).sort((a, b) => b.rowCount - a.rowCount)
+
+  return { layoutRows, unmappedTeams, unparseableGroups }
 }

@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { getBoardsBreakdown, getBoardsDebug, slugifyBoard, type BoardEntry, type BoardLayoutDebugRow, type UnmappedTeam } from '@/lib/boards'
+import { getBoardsBreakdown, getBoardsDebug, slugifyBoard, type BoardEntry, type BoardLayoutDebugRow, type UnmappedTeam, type UnparseableGroup } from '@/lib/boards'
 import { BOARD_TO_AE } from '@/lib/manager_sections'
 import { createAdminClient } from '@/lib/supabase/admin'
 import SyncButton from '@/app/(dashboard)/onboarding/SyncButton'
@@ -19,7 +19,7 @@ async function getBoardsDiagnostics() {
 
 export default async function BoardsPage() {
   let boards: BoardEntry[]
-  let debug: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[] } = { layoutRows: [], unmappedTeams: [] }
+  let debug: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[]; unparseableGroups: UnparseableGroup[] } = { layoutRows: [], unmappedTeams: [], unparseableGroups: [] }
   const diagnostics = await getBoardsDiagnostics()
   try {
     [boards, debug] = await Promise.all([getBoardsBreakdown(), getBoardsDebug()])
@@ -96,13 +96,13 @@ export default async function BoardsPage() {
       </div>
 
       {/* Debug: what the layout sync pulled + which chatter-schedule teams aren't matching */}
-      <DebugPanel layoutRows={debug.layoutRows} unmappedTeams={debug.unmappedTeams} />
+      <DebugPanel layoutRows={debug.layoutRows} unmappedTeams={debug.unmappedTeams} unparseableGroups={debug.unparseableGroups} />
     </div>
   )
 }
 
-function DebugPanel({ layoutRows, unmappedTeams }: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[] }) {
-  if (layoutRows.length === 0 && unmappedTeams.length === 0) return null
+function DebugPanel({ layoutRows, unmappedTeams, unparseableGroups }: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[]; unparseableGroups: UnparseableGroup[] }) {
+  if (layoutRows.length === 0 && unmappedTeams.length === 0 && unparseableGroups.length === 0) return null
 
   // Group layout rows by board name for easier scanning
   const byBoard = new Map<string, BoardLayoutDebugRow[]>()
@@ -156,6 +156,7 @@ function DebugPanel({ layoutRows, unmappedTeams }: { layoutRows: BoardLayoutDebu
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: unmappedTeams.length > 0 ? 'var(--amber)' : 'var(--text-2)', marginBottom: 10 }}>
             Unmapped chatter-schedule teams · {unmappedTeams.length}
+            <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-4)', marginLeft: 6 }}>parsed, no board match</span>
           </div>
           {unmappedTeams.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>
@@ -174,6 +175,29 @@ function DebugPanel({ layoutRows, unmappedTeams }: { layoutRows: BoardLayoutDebu
           )}
         </div>
       </div>
+
+      {/* Group titles that didn't parse to a pod/team at all */}
+      {unparseableGroups.length > 0 && (
+        <div style={{ marginTop: 14, background: 'var(--surface)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 12, padding: '16px 18px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', marginBottom: 10 }}>
+            Unparseable chatter-schedule groups · {unparseableGroups.length}
+            <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-4)', marginLeft: 6 }}>no pod/team extracted — these rows are invisible to the board view</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {unparseableGroups.map(g => (
+              <div key={g.groupTitle} style={{ fontSize: 11.5 }}>
+                <div style={{ fontFamily: 'monospace', color: 'var(--text)' }}>{g.groupTitle}</div>
+                <div style={{ fontSize: 10.5, color: 'var(--text-4)', paddingLeft: 10, marginTop: 2 }}>
+                  {g.rowCount} row{g.rowCount === 1 ? '' : 's'}
+                  {g.chatterSample.length > 0 && (
+                    <> · sample chatters: <span style={{ color: 'var(--text-3)' }}>{g.chatterSample.join(', ')}</span></>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

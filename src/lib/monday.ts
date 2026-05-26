@@ -315,19 +315,29 @@ export type ParsedPageAssignment = {
 const SCHEDULE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 
 /**
- * Parse "POD C - T8 CHINKERBELL" → { pod: "C", team: "T8", page_name: "CHINKERBELL" }.
- * Falls back to a permissive split if the canonical format doesn't match.
+ * Parse a chatter-schedule group title into pod / team / page name. Accepts:
+ *   "POD C - T8 CHINKERBELL"        (canonical: with dash)
+ *   "POD J T1 PAGE NAME"            (no dash)
+ *   "POD J TEAM 1 PAGE NAME"        (TEAM word instead of T#)
+ *   "POD J - TEAM 1 PAGE | OTHER"   (dash + TEAM word + pipe pages)
+ *
+ * Pod is the token right after "POD"; team is normalised to "T<digits>";
+ * page name is whatever comes after the team token.
  */
 export function parsePageGroupTitle(title: string | null): { pod: string | null; team: string | null; page_name: string | null } {
   if (!title) return { pod: null, team: null, page_name: null }
-  const m = title.match(/^POD\s+(\S+)\s*-\s*(T\d+)\s+(.+)$/i)
+  // Combined match: pod letter, optional dash, team (T# or TEAM #), rest of string.
+  const m = title.match(/^POD\s+(\S+)\s*[-—]?\s*(?:TEAM\s+|T)(\d+)\s*(.*)$/i)
   if (m) {
-    return { pod: m[1].toUpperCase(), team: m[2].toUpperCase(), page_name: m[3].trim().toUpperCase() }
+    const page = (m[3] ?? '').trim()
+    return {
+      pod: m[1].toUpperCase(),
+      team: `T${m[2]}`,
+      page_name: page.length > 0 ? page.toUpperCase() : null,
+    }
   }
-  // Fallback: just take the last token as the page name
-  const tokens = title.trim().split(/\s+/)
-  const page_name = tokens.length > 0 ? tokens[tokens.length - 1].toUpperCase() : null
-  return { pod: null, team: null, page_name }
+  // Fallback: no pod/team detected — surface the whole title as the page label
+  return { pod: null, team: null, page_name: title.trim().toUpperCase() || null }
 }
 
 export function parsePageAssignmentItem(item: MondayItem, boardId: string): ParsedPageAssignment {
@@ -382,14 +392,20 @@ export type ParsedBoardGroup = {
 }
 
 /**
- * Parse "POD A TEAM 1" → pod="A", team="T1". Also accepts "POD A - T1"
- * (chatter-schedule style) just in case the operational boards drift toward
- * that format.
+ * Parse pod + team out of a group title. Accepts every variant we've seen so
+ * far:
+ *   "POD A TEAM 1"          (AE board layouts)
+ *   "POD A - T1 PAGE NAME"  (chatter schedule, with dash + page)
+ *   "POD A T1 PAGE NAME"    (chatter schedule, no dash)
+ *   "POD J TEAM 1 PAGE"     (chatter schedule, TEAM word)
+ *
+ * The pod token can be a letter ("A".."Z") or short string; the team is
+ * normalised to "T<digits>".
  */
 export function parseBoardGroup(title: string | null): { pod: string | null; team: string | null } {
   if (!title) return { pod: null, team: null }
   const podMatch = title.match(/POD\s+([A-Z0-9]+)/i)
-  const teamMatch = title.match(/(?:TEAM\s+|\bT)(\d+)/i)
+  const teamMatch = title.match(/(?:TEAM\s+|\bT)(\d+)\b/i)
   return {
     pod: podMatch ? podMatch[1].toUpperCase() : null,
     team: teamMatch ? `T${teamMatch[1]}` : null,
