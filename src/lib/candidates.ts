@@ -127,7 +127,7 @@ export function segmentLabel(filter: SegmentFilter): { title: string; sub: strin
   if (filter.kind === 'group') return { title: headline, sub: filter.groupTitle }
   const stageLabels: Record<StageKey, string> = {
     typeform: 'Typeform', passed: 'Passed', pending: 'Pending interview',
-    scheduled: 'Scheduled interview', training: 'In training', standby: 'Standby', active: 'Active hires',
+    scheduled: 'Scheduled / pending start', training: 'In training', standby: 'Standby', active: 'Active hires',
   }
   return { title: headline, sub: stageLabels[filter.stage] }
 }

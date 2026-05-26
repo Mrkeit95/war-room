@@ -54,8 +54,8 @@ const STAGES_BY_BUCKET: Record<Exclude<UiBucket, null>, CanonicalStage[]> = {
   typeform: ['typeform'],
   passed: ['passed_typeform'],
   pending: ['pending_interview'],
-  scheduled: ['scheduled_interview', 'pending_onboarding'],
-  training: ['pending_week_1', 'week_1_training', 'week_2_training', 'week_3_training', 'training_board'],
+  scheduled: ['scheduled_interview', 'pending_onboarding', 'pending_week_1'],
+  training: ['week_1_training', 'week_2_training', 'week_3_training', 'training_board'],
   standby: ['pool', 'standby'],
   active: ['active', 'promoted', 'pto'],
 }

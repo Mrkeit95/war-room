@@ -12,7 +12,7 @@ const STAGE_DISPLAY: { key: Bucket; label: string }[] = [
   { key: 'typeform', label: 'Typeform' },
   { key: 'passed', label: 'Passed' },
   { key: 'pending', label: 'Pending interview' },
-  { key: 'scheduled', label: 'Scheduled interview' },
+  { key: 'scheduled', label: 'Scheduled / pending start' },
   { key: 'training', label: 'Training' },
   { key: 'standby', label: 'Standby' },
   { key: 'active', label: 'Active' },

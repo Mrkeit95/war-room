@@ -142,7 +142,7 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
           <PipelineTile num={bucket('typeform')} label="Typeform" segment={`${regionCode}:typeform`} />
           <PipelineTile num={bucket('passed')} label="Passed" segment={`${regionCode}:passed`} />
           <PipelineTile num={bucket('pending')} label="Pending interview" segment={`${regionCode}:pending`} />
-          <PipelineTile num={bucket('scheduled')} label="Scheduled interview" segment={`${regionCode}:scheduled`} />
+          <PipelineTile num={bucket('scheduled')} label="Scheduled / pending start" segment={`${regionCode}:scheduled`} />
           <PipelineTile num={bucket('training')} label="Training" segment={`${regionCode}:training`} />
           <PipelineTile num={bucket('standby')} label="Standby" segment={`${regionCode}:standby`} />
           <PipelineTile num={bucket('active')} label="Active" segment={`${regionCode}:active`} />

@@ -87,8 +87,8 @@ export function uiBucket(stage: CanonicalStage | null | undefined): UiBucket {
     case 'passed_typeform': return 'passed'
     case 'pending_interview': return 'pending'
     case 'scheduled_interview':
-    case 'pending_onboarding': return 'scheduled'
-    case 'pending_week_1':
+    case 'pending_onboarding':
+    case 'pending_week_1': return 'scheduled'
     case 'week_1_training':
     case 'week_2_training':
     case 'week_3_training':
