@@ -3,6 +3,7 @@ import BriefingReminders from '@/components/BriefingReminders'
 import CandidateLink from '@/components/CandidateLink'
 import { getBriefingData, getCurrentAlerts, getLastSyncedAt, type Alert, type BriefingCandidate } from '@/lib/db'
 import { tierDisplay } from '@/lib/candidates'
+import { getOnboardingSnapshot, type OnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,9 +13,15 @@ export default async function BriefingPage() {
   let data: Awaited<ReturnType<typeof getBriefingData>> | null = null
   let lastSyncedAt: string | null = null
   let alerts: Alert[] = []
+  let onboarding: OnboardingSnapshot | null = null
   let error: string | null = null
   try {
-    ;[data, lastSyncedAt, alerts] = await Promise.all([getBriefingData(), getLastSyncedAt(), getCurrentAlerts()])
+    ;[data, lastSyncedAt, alerts, onboarding] = await Promise.all([
+      getBriefingData(),
+      getLastSyncedAt(),
+      getCurrentAlerts(),
+      getOnboardingSnapshot().catch(() => null),   // onboarding is best-effort — don't block briefing
+    ])
   } catch (err) {
     error = err instanceof Error ? err.message : String(err)
   }
@@ -22,8 +29,21 @@ export default async function BriefingPage() {
   const standbyAlerts = alerts.filter(a => a.type === 'standby_unassigned')
   const ptoAlerts = alerts.filter(a => a.type === 'pto_overdue')
 
+  // Pages starting within 7 days that aren't on the chatter schedule yet (no POD/team).
+  const unscheduledOnboardings = (onboarding?.models ?? [])
+    .map(m => {
+      if (m.pod || m.team || m.chattersAlreadyAssigned > 0) return null
+      if (m.daysUntilStart === null || m.daysUntilStart > 7) return null
+      const severity: 'critical' | 'warning' = m.daysUntilStart <= 3 ? 'critical' : 'warning'
+      return { model: m, severity }
+    })
+    .filter((x): x is { model: ModelWithCapacity; severity: 'critical' | 'warning' } => x !== null)
+
+  // Pages starting today or tomorrow (need to be on someone's radar regardless of schedule status)
+  const startingSoon = (onboarding?.models ?? []).filter(m => m.daysUntilStart !== null && m.daysUntilStart <= 2)
+
   const narrative = data
-    ? buildNarrative(data)
+    ? buildNarrative(data, { startingSoon: startingSoon.length, unscheduled: unscheduledOnboardings.length, shortBy: onboarding?.shortBy ?? 0 })
     : 'Live data is temporarily unavailable.'
 
   return (
@@ -71,6 +91,53 @@ export default async function BriefingPage() {
                     +{standbyAlerts.length - 10} more on /standby →
                   </Link>
                 )}
+              </div>
+            </Section>
+          )}
+
+          {/* Model onboarding — pages starting soon that aren't scheduled yet */}
+          {unscheduledOnboardings.length > 0 && (
+            <Section title="Onboarding — pages starting soon, no schedule yet">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+                {unscheduledOnboardings.length} {unscheduledOnboardings.length === 1 ? 'page is' : 'pages are'} launching within 7 days but not on the chatter schedule.{' '}
+                <Link href="/onboarding" style={{ color: 'var(--text-3)' }}>See all →</Link>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {unscheduledOnboardings.map((u, i) => (
+                  <OnboardingRow key={u.model.id} model={u.model} severity={u.severity} num={String(i + 1).padStart(2, '0')} />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Coverage status — surface the deficit if we're short */}
+          {onboarding && (onboarding.shortBy > 0 || onboarding.models.length > 0) && (
+            <Section title="Onboarding coverage">
+              <div style={{
+                background: 'var(--surface)',
+                border: `1px solid ${onboarding.shortBy > 0 ? 'rgba(239,68,68,0.22)' : 'var(--border)'}`,
+                borderRadius: 10, padding: '14px 18px',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
+              }}>
+                <div style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5, flex: 1, minWidth: 220 }}>
+                  {onboarding.shortBy > 0 ? (
+                    <>
+                      <strong style={{ color: 'var(--red)' }}>Short {onboarding.shortBy} chatter{onboarding.shortBy === 1 ? '' : 's'}</strong>
+                      {' '}across {onboarding.models.length} upcoming page{onboarding.models.length === 1 ? '' : 's'}.
+                      {' '}{onboarding.availableStandby} on standby, {onboarding.totalStillNeeded} still needed.
+                    </>
+                  ) : (
+                    <>
+                      <strong style={{ color: 'var(--green)' }}>Covered.</strong>
+                      {' '}{onboarding.availableStandby} on standby, {onboarding.totalStillNeeded} still needed for upcoming pages.
+                    </>
+                  )}
+                </div>
+                <Link href="/onboarding" style={{
+                  fontSize: 11.5, padding: '6px 12px', borderRadius: 6,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  color: 'var(--text-2)', textDecoration: 'none', whiteSpace: 'nowrap',
+                }}>Open onboarding →</Link>
               </div>
             </Section>
           )}
@@ -147,17 +214,31 @@ export default async function BriefingPage() {
   )
 }
 
-function buildNarrative(d: Awaited<ReturnType<typeof getBriefingData>>): string {
+function buildNarrative(
+  d: Awaited<ReturnType<typeof getBriefingData>>,
+  onboarding: { startingSoon: number; unscheduled: number; shortBy: number },
+): string {
   const parts: string[] = []
   if (d.newLast24h > 0) parts.push(`${d.newLast24h} new candidate${d.newLast24h === 1 ? '' : 's'} entered the pipeline`)
   if (d.transitions24h > 0) parts.push(`${d.transitions24h} stage change${d.transitions24h === 1 ? '' : 's'} recorded`)
   const lead = parts.length > 0
     ? `In the last 24 hours: ${parts.join(' and ')}.`
     : 'No new candidates or stage changes in the last 24 hours.'
-  const tail = d.atRiskInTraining.length > 0
-    ? ` ${d.atRiskInTraining.length} at-risk candidate${d.atRiskInTraining.length === 1 ? '' : 's'} in training need${d.atRiskInTraining.length === 1 ? 's' : ''} attention.`
-    : ''
-  return lead + tail
+
+  const tails: string[] = []
+  if (onboarding.startingSoon > 0) {
+    tails.push(`${onboarding.startingSoon} page${onboarding.startingSoon === 1 ? '' : 's'} start${onboarding.startingSoon === 1 ? 's' : ''} in the next 2 days`)
+  }
+  if (onboarding.unscheduled > 0) {
+    tails.push(`${onboarding.unscheduled} upcoming page${onboarding.unscheduled === 1 ? ' is' : 's are'} not yet on the chatter schedule`)
+  }
+  if (onboarding.shortBy > 0) {
+    tails.push(`onboarding is short ${onboarding.shortBy} chatter${onboarding.shortBy === 1 ? '' : 's'}`)
+  }
+  if (d.atRiskInTraining.length > 0) {
+    tails.push(`${d.atRiskInTraining.length} at-risk candidate${d.atRiskInTraining.length === 1 ? '' : 's'} in training need${d.atRiskInTraining.length === 1 ? 's' : ''} attention`)
+  }
+  return tails.length > 0 ? `${lead} ${tails.join('. ').replace(/\.$/, '')}.` : lead
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -214,6 +295,41 @@ function CandidateRow({ candidate, num, accent }: { candidate: BriefingCandidate
         </div>
       </div>
     </CandidateLink>
+  )
+}
+
+function OnboardingRow({ model, severity, num }: { model: ModelWithCapacity; severity: 'critical' | 'warning'; num: string }) {
+  const accent = severity === 'critical' ? 'var(--red)' : 'var(--amber)'
+  const startLabel = (() => {
+    if (model.daysUntilStart === null) return '—'
+    if (model.daysUntilStart === 0) return 'today'
+    if (model.daysUntilStart === 1) return 'tomorrow'
+    return `in ${model.daysUntilStart}d`
+  })()
+  return (
+    <Link href="/onboarding" style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '14px 18px', display: 'flex', gap: 14, alignItems: 'center',
+        borderLeft: `2px solid ${accent}`, cursor: 'pointer',
+      }}>
+        <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--text-4)', width: 18, flexShrink: 0 }}>{num}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.4, marginBottom: 2 }}>{model.name}</div>
+          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+            Starts {startLabel}
+            {model.revenue ? ` · $${(model.revenue / 1000).toFixed(model.revenue % 1000 === 0 ? 0 : 1)}k` : ''}
+            {model.board ? ` · ${model.board}` : ''}
+          </div>
+        </div>
+        <span style={{
+          fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600,
+          padding: '3px 8px', borderRadius: 5, whiteSpace: 'nowrap',
+          background: severity === 'critical' ? 'rgba(239,68,68,0.10)' : 'rgba(251,191,36,0.10)',
+          color: accent,
+        }}>{severity === 'critical' ? 'critical' : 'warning'}</span>
+      </div>
+    </Link>
   )
 }
 
