@@ -135,22 +135,44 @@ export async function listCandidates(opts: ListOpts = {}): Promise<DbCandidate[]
   return (data ?? []) as DbCandidate[]
 }
 
+export type ManagerSummary = {
+  name: string
+  total: number
+  inPipeline: number
+  t1: number
+  t2: number
+  t3: number
+  t4: number
+  ungraded: number
+}
+
+export type GroupSummary = {
+  groupTitle: string
+  count: number
+  bucket: UiBucket
+  stage: CanonicalStage
+}
+
 export async function getRegionStats(region: Region) {
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('candidates')
-    .select('current_stage, tier')
+    .select('current_stage, current_group_title, tier, assigned_manager')
     .eq('region', region)
     .limit(10000)
   if (error) throw new Error(`getRegionStats: ${error.message}`)
 
   const byStage: Partial<Record<CanonicalStage, number>> = {}
   const byBucket: Record<Exclude<UiBucket, null>, number> = emptyBucket()
-  const gradeDist: Record<string, number> = { A: 0, B: 0, C: 0, D: 0, F: 0 }
+  const tierDist: Record<string, number> = {}
+  const groupAcc: Record<string, GroupSummary> = {}
+  const managerAcc: Record<string, ManagerSummary> = {}
   let inPipeline = 0
   let total = 0
 
-  for (const row of (data ?? []) as { current_stage: CanonicalStage; tier: string | null }[]) {
+  type Row = { current_stage: CanonicalStage; current_group_title: string | null; tier: string | null; assigned_manager: string | null }
+
+  for (const row of (data ?? []) as Row[]) {
     total += 1
     byStage[row.current_stage] = (byStage[row.current_stage] ?? 0) + 1
     const bucket = uiBucket(row.current_stage)
@@ -159,12 +181,38 @@ export async function getRegionStats(region: Region) {
       inPipeline += 1
     }
     if (row.tier) {
-      const upper = row.tier.toUpperCase()
-      if (upper in gradeDist) gradeDist[upper] += 1
+      tierDist[row.tier] = (tierDist[row.tier] ?? 0) + 1
+    }
+
+    // Sub-stage breakdown — real Monday group titles
+    if (row.current_group_title) {
+      const g = groupAcc[row.current_group_title]
+      if (g) g.count += 1
+      else groupAcc[row.current_group_title] = { groupTitle: row.current_group_title, count: 1, bucket, stage: row.current_stage }
+    }
+
+    // Per-manager breakdown — only candidates still in pipeline
+    if (bucket) {
+      const mgrName = row.assigned_manager?.trim() || 'Unassigned'
+      if (!managerAcc[mgrName]) {
+        managerAcc[mgrName] = { name: mgrName, total: 0, inPipeline: 0, t1: 0, t2: 0, t3: 0, t4: 0, ungraded: 0 }
+      }
+      const m = managerAcc[mgrName]
+      m.total += 1
+      m.inPipeline += 1
+      const rank = tierRank(row.tier)
+      if (rank === 1) m.t1 += 1
+      else if (rank === 2) m.t2 += 1
+      else if (rank === 3) m.t3 += 1
+      else if (rank === 4) m.t4 += 1
+      else m.ungraded += 1
     }
   }
 
-  return { total, inPipeline, byStage, byBucket, gradeDist }
+  const byGroup: GroupSummary[] = Object.values(groupAcc).sort((a, b) => b.count - a.count)
+  const byManager: ManagerSummary[] = Object.values(managerAcc).sort((a, b) => b.inPipeline - a.inPipeline)
+
+  return { total, inPipeline, byStage, byBucket, tierDist, byGroup, byManager }
 }
 
 export type BriefingCandidate = {

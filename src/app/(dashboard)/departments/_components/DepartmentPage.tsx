@@ -1,10 +1,8 @@
 import SegmentLink from '@/components/SegmentLink'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
-import type { Region } from '@/lib/candidates'
-import { getRegionStats } from '@/lib/db'
-
-const gradeColors: Record<string, string> = { A: '#4ade80', B: '#60a5fa', C: '#fde047', D: '#fb923c', F: '#ef4444' }
-const gradeBg: Record<string, string> = { A: 'rgba(74,222,128,0.15)', B: 'rgba(96,165,250,0.15)', C: 'rgba(253,224,71,0.15)', D: 'rgba(251,146,60,0.15)', F: 'rgba(239,68,68,0.18)' }
+import { tierDisplay, type Region } from '@/lib/candidates'
+import { getRegionStats, type GroupSummary, type ManagerSummary } from '@/lib/db'
+import { uiBucket } from '@/lib/stages'
 
 type Lane = { title: string; meta: string; tone: 'ok' | 'warn' | 'bad'; tag?: string }
 
@@ -13,15 +11,17 @@ type Props = {
   name: string
   regionCode: 'ph' | 'eu' | 'sa' | 'uk'
   subtitle: string
-  conversion: { pct: number; color: string }   // currently hardcoded — needs historical data
-  conversionNote?: string                       // optional small note next to %
-  avgGrade?: { value: string; color: string; meta: string }
+  conversion: { pct: number; color: string }   // hardcoded — needs historical data
+  conversionNote?: string
   lanes?: Lane[]
 }
 
 export const dynamic = 'force-dynamic'
 
-export default async function DepartmentPage({ flag, name, regionCode, subtitle, conversion, conversionNote, avgGrade, lanes }: Props) {
+const SUBSTAGE_DISPLAY_LIMIT = 20
+const MANAGER_DISPLAY_LIMIT = 12
+
+export default async function DepartmentPage({ flag, name, regionCode, subtitle, conversion, conversionNote, lanes }: Props) {
   const region = regionCode.toUpperCase() as Region
   const phase = getRegionPhase(region)
 
@@ -35,6 +35,10 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
 
   const bucket = (b: keyof NonNullable<typeof stats>['byBucket']) => stats?.byBucket[b] ?? 0
   const fmt = (n: number) => n.toLocaleString()
+
+  const inPipelineGroups = (stats?.byGroup ?? []).filter(g => uiBucket(g.stage) !== null).slice(0, SUBSTAGE_DISPLAY_LIMIT)
+  const tierEntries = Object.entries(stats?.tierDist ?? {}).sort((a, b) => b[1] - a[1])
+  const totalTiered = tierEntries.reduce((acc, [, v]) => acc + v, 0)
 
   return (
     <div>
@@ -72,18 +76,16 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </div>
       )}
 
+      {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
         <KpiCard label="In pipeline" value={fmt(stats?.inPipeline ?? 0)} meta={stats ? `${stats.total.toLocaleString()} total on board` : '—'} segment={`${regionCode}:all`} />
         <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
         <KpiCard label="Active hires" value={fmt(bucket('active'))} meta="active + promoted + PTO" segment={`${regionCode}:active`} />
-        {avgGrade ? (
-          <KpiCard label="Avg grade" value={avgGrade.value} meta={avgGrade.meta} color={avgGrade.color} />
-        ) : (
-          <KpiCard label="Avg grade" value="—" meta="Grading not yet enabled" />
-        )}
+        <KpiCard label="Managers" value={fmt(stats?.byManager.length ?? 0)} meta="people in this sector" />
       </div>
 
-      <Panel title="Pipeline" style={{ marginBottom: 14 }}>
+      {/* High-level pipeline (7 buckets) */}
+      <Panel title="Pipeline · 7 stages" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 10 }}>
           <PipelineTile num={bucket('typeform')} label="Typeform" segment={`${regionCode}:typeform`} />
           <PipelineTile num={bucket('passed')} label="Passed" segment={`${regionCode}:passed`} />
@@ -95,35 +97,78 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </div>
       </Panel>
 
-      <Panel title="Grade distribution" style={{ marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-          {(['A', 'B', 'C', 'D', 'F'] as const).map(g => (
-            <SegmentLink key={g} segment={`${regionCode}:grade-${g}`} block>
-              <div style={{
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                borderRadius: 8, padding: '14px 12px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12,
-                cursor: 'pointer', height: '100%',
-              }}>
-                <div style={{
-                  width: 32, height: 32, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontWeight: 700, fontSize: 13, fontFamily: 'monospace',
-                  background: gradeBg[g], color: gradeColors[g],
-                }}>{g}</div>
-                <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 600 }}>{fmt(stats?.gradeDist[g] ?? 0)}</div>
-              </div>
-            </SegmentLink>
-          ))}
-        </div>
-        {stats && Object.values(stats.gradeDist).every(n => n === 0) && (
-          <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 12, textAlign: 'center', fontStyle: 'italic' }}>
-            No grades synced yet — the Tier column in Monday will be used once your grading process is in place.
+      {/* Stage detail — actual Monday groups */}
+      {inPipelineGroups.length > 0 && (
+        <Panel title="Stage detail · live Monday groups" style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {inPipelineGroups.map((g, i) => (
+              <StageDetailRow key={g.groupTitle} group={g} regionCode={regionCode} isLast={i === inPipelineGroups.length - 1} />
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {/* Tier distribution */}
+      <Panel title="Tier distribution" style={{ marginBottom: 14 }}>
+        {totalTiered === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--text-4)', fontStyle: 'italic', padding: '6px 0' }}>
+            No tiers assigned yet — Monday&apos;s Tier column is empty for this region.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(tierEntries.length, 5)}, 1fr)`, gap: 10 }}>
+            {tierEntries.slice(0, 5).map(([tier, count]) => {
+              const display = tierDisplay(tier)
+              const pct = totalTiered > 0 ? Math.round((count / totalTiered) * 100) : 0
+              return (
+                <div key={tier} style={{
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  borderRadius: 8, padding: '14px 12px', height: '100%',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    {display && (
+                      <span style={{
+                        fontSize: 10.5, padding: '3px 8px', borderRadius: 4, fontWeight: 700, fontFamily: 'monospace',
+                        background: display.bg, color: display.color,
+                      }}>{display.label}</span>
+                    )}
+                    <span style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'monospace' }}>{pct}%</span>
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, lineHeight: 1 }}>{count.toLocaleString()}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--text-3)', marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tier}</div>
+                </div>
+              )
+            })}
           </div>
         )}
       </Panel>
 
+      {/* Per-manager breakdown */}
+      {stats && stats.byManager.length > 0 && (
+        <Panel title={`By manager · ${stats.byManager.length} ${stats.byManager.length === 1 ? 'person' : 'people'}`} style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)', gap: 12, fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, padding: '6px 0 10px', borderBottom: '1px solid var(--border)' }}>
+              <span>Manager</span>
+              <span style={{ textAlign: 'right' }}>In pipeline</span>
+              <span style={{ textAlign: 'right' }}>T1</span>
+              <span style={{ textAlign: 'right' }}>T2</span>
+              <span style={{ textAlign: 'right' }}>T3</span>
+              <span style={{ textAlign: 'right' }}>T4</span>
+              <span style={{ textAlign: 'right' }}>—</span>
+            </div>
+            {stats.byManager.slice(0, MANAGER_DISPLAY_LIMIT).map((m, i) => (
+              <ManagerRow key={m.name} manager={m} isLast={i === Math.min(stats!.byManager.length, MANAGER_DISPLAY_LIMIT) - 1} />
+            ))}
+            {stats.byManager.length > MANAGER_DISPLAY_LIMIT && (
+              <div style={{ fontSize: 11, color: 'var(--text-4)', textAlign: 'center', padding: '10px 0 0', fontStyle: 'italic' }}>
+                +{stats.byManager.length - MANAGER_DISPLAY_LIMIT} more managers
+              </div>
+            )}
+          </div>
+        </Panel>
+      )}
+
       {lanes && (
-        <Panel title="Training lanes">
+        <Panel title="Training lanes (manual config)">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
             {lanes.map((l, i) => (
               <div key={l.title} style={{
@@ -148,6 +193,59 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
           </div>
         </Panel>
       )}
+    </div>
+  )
+}
+
+function StageDetailRow({ group, regionCode, isLast }: { group: GroupSummary; regionCode: string; isLast: boolean }) {
+  const bucket = uiBucket(group.stage)
+  const segment = bucket ? `${regionCode}:${bucket}` : null
+  const accentByBucket: Record<string, string> = {
+    typeform: 'var(--text-4)', passed: 'var(--blue)',
+    pending: 'var(--amber)', scheduled: 'var(--blue)',
+    training: 'var(--violet)', standby: 'var(--text-3)', active: 'var(--green)',
+  }
+  const accent = bucket ? accentByBucket[bucket] : 'var(--text-4)'
+  const inner = (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+      alignItems: 'center', gap: 14,
+      padding: '12px 4px',
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+      cursor: segment ? 'pointer' : 'default',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: accent, flexShrink: 0 }} />
+        <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{group.groupTitle}</span>
+      </div>
+      {bucket && (
+        <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-4)', fontWeight: 500 }}>{bucket}</span>
+      )}
+      <span style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: 'var(--text)', minWidth: 48, textAlign: 'right' }}>{group.count.toLocaleString()}</span>
+    </div>
+  )
+  return segment ? <SegmentLink segment={segment} block>{inner}</SegmentLink> : <div>{inner}</div>
+}
+
+function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: boolean }) {
+  const cellNum = (n: number, color?: string) => (
+    <span style={{ fontFamily: 'monospace', fontSize: 12, textAlign: 'right', color: n > 0 ? (color || 'var(--text)') : 'var(--text-4)' }}>
+      {n}
+    </span>
+  )
+  return (
+    <div style={{
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) 0.6fr repeat(5, 0.5fr)',
+      alignItems: 'center', gap: 12, padding: '11px 0',
+      borderBottom: isLast ? 'none' : '1px solid var(--border)',
+    }}>
+      <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.name}</span>
+      <span style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 600, textAlign: 'right' }}>{manager.inPipeline.toLocaleString()}</span>
+      {cellNum(manager.t1, 'var(--red)')}
+      {cellNum(manager.t2, 'var(--orange)')}
+      {cellNum(manager.t3, 'var(--blue)')}
+      {cellNum(manager.t4, 'var(--green)')}
+      {cellNum(manager.ungraded)}
     </div>
   )
 }
