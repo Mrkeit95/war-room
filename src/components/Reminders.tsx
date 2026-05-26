@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  createReminderApi,
+  deleteReminderApi,
+  fetchAllReminders,
   formatDueLabel,
   isOverdue,
-  isRecurringActiveToday,
-  loadReminders,
+  migrateLocalReminders,
   parseDueDate,
   parseRecurrence,
   recurrenceLabel,
-  saveReminders,
+  updateReminderApi,
   type Reminder,
 } from '@/lib/reminders'
 
@@ -17,65 +19,99 @@ export default function Reminders() {
   const [items, setItems] = useState<Reminder[]>([])
   const [draft, setDraft] = useState('')
   const [hydrated, setHydrated] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setItems(loadReminders())
-    setHydrated(true)
+    let cancelled = false
+    ;(async () => {
+      try {
+        await migrateLocalReminders()
+        const fresh = await fetchAllReminders()
+        if (!cancelled) {
+          setItems(fresh)
+          setHydrated(true)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err))
+          setHydrated(true)
+        }
+      }
+    })()
+    return () => { cancelled = true }
   }, [])
 
-  // Parse recurrence FIRST so "every monday" doesn't get caught by the weekday-date parser.
   const recurrenceParsed = useMemo(() => parseRecurrence(draft), [draft])
   const remainingForDate = recurrenceParsed ? recurrenceParsed.cleaned : draft
   const dueParsed = useMemo(() => (recurrenceParsed ? null : parseDueDate(remainingForDate)), [recurrenceParsed, remainingForDate])
 
-  const add = () => {
+  const add = async () => {
     const trimmed = draft.trim()
     if (!trimmed) return
     const baseText = recurrenceParsed ? recurrenceParsed.cleaned : (dueParsed ? dueParsed.cleaned : trimmed)
     const text = baseText || trimmed
-    const next: Reminder[] = [
-      {
-        id: crypto.randomUUID(),
+    setDraft('')
+    try {
+      const created = await createReminderApi({
         text,
-        done: false,
-        createdAt: Date.now(),
         dueDate: recurrenceParsed ? undefined : dueParsed?.dueDate,
         recurrence: recurrenceParsed?.recurrence,
-      },
-      ...items,
-    ]
-    setItems(next)
-    saveReminders(next)
-    setDraft('')
+      })
+      setItems(prev => [created, ...prev])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setDraft(trimmed) // restore on failure
+    }
   }
 
-  const toggle = (id: string) => {
-    const next = items.map(r => r.id === id ? { ...r, done: !r.done } : r)
-    setItems(next)
-    saveReminders(next)
+  const toggle = async (id: string) => {
+    const target = items.find(r => r.id === id)
+    if (!target) return
+    setItems(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r))
+    try {
+      await updateReminderApi(id, { done: !target.done })
+    } catch (err) {
+      // Revert
+      setItems(prev => prev.map(r => r.id === id ? { ...r, done: target.done } : r))
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
-  const remove = (id: string) => {
-    const next = items.filter(r => r.id !== id)
-    setItems(next)
-    saveReminders(next)
+  const remove = async (id: string) => {
+    const snapshot = items
+    setItems(prev => prev.filter(r => r.id !== id))
+    try {
+      await deleteReminderApi(id)
+    } catch (err) {
+      setItems(snapshot)
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
-  const updateItem = (id: string, newText: string) => {
+  const updateItem = async (id: string, newText: string) => {
     const trimmed = newText.trim()
     if (!trimmed) return
-    // Re-parse on edit so changing text can update recurrence/date too
     const rec = parseRecurrence(trimmed)
     const due = rec ? null : parseDueDate(trimmed)
     const baseText = rec ? rec.cleaned : (due ? due.cleaned : trimmed)
-    const next = items.map(r => r.id === id ? {
+    const text = baseText || trimmed
+    const snapshot = items
+    setItems(prev => prev.map(r => r.id === id ? {
       ...r,
-      text: baseText || trimmed,
+      text,
       dueDate: rec ? undefined : due?.dueDate,
       recurrence: rec?.recurrence,
-    } : r)
-    setItems(next)
-    saveReminders(next)
+    } : r))
+    try {
+      await updateReminderApi(id, {
+        text,
+        dueDate: rec ? null : (due?.dueDate ?? null),
+        recurrence: rec?.recurrence ?? null,
+      })
+    } catch (err) {
+      setItems(snapshot)
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   const open = items.filter(r => !r.done)
@@ -89,6 +125,12 @@ export default function Reminders() {
           <div style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-3)' }}>{open.length} open</div>
         )}
       </div>
+
+      {error && (
+        <div style={{ fontSize: 11.5, color: 'var(--red)', marginBottom: 10, padding: '6px 8px', background: 'rgba(239,68,68,0.05)', borderRadius: 6 }}>
+          {error}
+        </div>
+      )}
 
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -142,7 +184,9 @@ export default function Reminders() {
         )}
       </div>
 
-      {!hydrated ? null : items.length === 0 ? (
+      {!hydrated ? (
+        <div style={{ fontSize: 12, color: 'var(--text-4)', padding: '4px 0', fontStyle: 'italic' }}>Loading…</div>
+      ) : items.length === 0 ? (
         <div style={{ fontSize: 12, color: 'var(--text-4)', padding: '4px 0', fontStyle: 'italic' }}>
           Nothing on your list. Type above and hit Enter.
         </div>
@@ -168,7 +212,6 @@ export default function Reminders() {
 function Item({ item, onToggle, onRemove, onSave }: { item: Reminder; onToggle: () => void; onRemove: () => void; onSave: (text: string) => void }) {
   const [hover, setHover] = useState(false)
   const [editing, setEditing] = useState(false)
-  // Reconstruct the user-typed phrasing so editing shows what they originally wrote
   const reconstruct = (r: Reminder): string => {
     if (r.recurrence) return `${r.text} ${recurrenceLabel(r.recurrence).toLowerCase()}`.trim()
     return r.text
@@ -181,7 +224,6 @@ function Item({ item, onToggle, onRemove, onSave }: { item: Reminder; onToggle: 
   const commit = () => {
     const trimmed = draft.trim()
     if (!trimmed) {
-      // Empty → cancel edit, revert
       setDraft(reconstruct(item))
     } else {
       onSave(trimmed)
@@ -260,10 +302,7 @@ function Item({ item, onToggle, onRemove, onSave }: { item: Reminder; onToggle: 
         {!item.done && (recurLabel || dueLabel) && (
           <div style={{ marginTop: 3, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {recurLabel && (
-              <span style={{
-                fontSize: 10, fontWeight: 500,
-                color: 'var(--violet)',
-              }}>{recurLabel}</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--violet)' }}>{recurLabel}</span>
             )}
             {dueLabel && (
               <span style={{

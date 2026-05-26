@@ -2,15 +2,25 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { formatDueLabel, isDueToday, isOverdue, isRecurringActiveToday, loadReminders, recurrenceLabel, saveReminders, type Reminder } from '@/lib/reminders'
+import {
+  fetchAllReminders,
+  formatDueLabel,
+  isDueToday,
+  isOverdue,
+  isRecurringActiveToday,
+  recurrenceLabel,
+  updateReminderApi,
+  type Reminder,
+} from '@/lib/reminders'
 
 export default function BriefingReminders() {
   const [items, setItems] = useState<Reminder[]>([])
   const [hydrated, setHydrated] = useState(false)
 
   useEffect(() => {
-    setItems(loadReminders())
-    setHydrated(true)
+    let cancelled = false
+    fetchAllReminders().then(d => { if (!cancelled) { setItems(d); setHydrated(true) } }).catch(() => { if (!cancelled) setHydrated(true) })
+    return () => { cancelled = true }
   }, [])
 
   if (!hydrated) return null
@@ -20,10 +30,16 @@ export default function BriefingReminders() {
 
   if (overdue.length === 0 && today.length === 0) return null
 
-  const toggle = (id: string) => {
-    const next = items.map(r => r.id === id ? { ...r, done: !r.done } : r)
-    setItems(next)
-    saveReminders(next)
+  const toggle = async (id: string) => {
+    const target = items.find(r => r.id === id)
+    if (!target) return
+    setItems(prev => prev.map(r => r.id === id ? { ...r, done: !r.done } : r))
+    try {
+      await updateReminderApi(id, { done: !target.done })
+    } catch {
+      // revert on failure
+      setItems(prev => prev.map(r => r.id === id ? { ...r, done: target.done } : r))
+    }
   }
 
   return (

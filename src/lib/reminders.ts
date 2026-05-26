@@ -37,9 +37,78 @@ export function isRecurringActiveToday(r: Recurrence | undefined, now: Date = ne
   return false
 }
 
-const STORAGE_KEY = 'war-room.reminders'
+/** Server row shape from /api/reminders. */
+type ServerReminder = {
+  id: string
+  text: string
+  done: boolean
+  created_at: string
+  due_date: string | null
+  recurrence: string | null
+}
 
-export function loadReminders(): Reminder[] {
+function fromServer(r: ServerReminder): Reminder {
+  return {
+    id: r.id,
+    text: r.text,
+    done: r.done,
+    createdAt: new Date(r.created_at).getTime(),
+    dueDate: r.due_date ?? undefined,
+    recurrence: (r.recurrence ?? undefined) as Recurrence | undefined,
+  }
+}
+
+export async function fetchAllReminders(): Promise<Reminder[]> {
+  const r = await fetch('/api/reminders', { cache: 'no-store' })
+  if (!r.ok) throw new Error(`Failed to load reminders (${r.status})`)
+  const data = await r.json()
+  return (data.reminders as ServerReminder[]).map(fromServer)
+}
+
+export async function createReminderApi(input: { text: string; dueDate?: string; recurrence?: Recurrence }): Promise<Reminder> {
+  const r = await fetch('/api/reminders', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: input.text, due_date: input.dueDate ?? null, recurrence: input.recurrence ?? null }),
+  })
+  if (!r.ok) throw new Error(`Failed to create reminder (${r.status})`)
+  const data = await r.json()
+  return fromServer(data.reminder as ServerReminder)
+}
+
+export async function updateReminderApi(
+  id: string,
+  patch: { text?: string; done?: boolean; dueDate?: string | null; recurrence?: Recurrence | null }
+): Promise<Reminder> {
+  const body: Record<string, unknown> = { id }
+  if (patch.text !== undefined) body.text = patch.text
+  if (patch.done !== undefined) body.done = patch.done
+  if (patch.dueDate !== undefined) body.due_date = patch.dueDate
+  if (patch.recurrence !== undefined) body.recurrence = patch.recurrence
+  const r = await fetch('/api/reminders', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) throw new Error(`Failed to update reminder (${r.status})`)
+  const data = await r.json()
+  return fromServer(data.reminder as ServerReminder)
+}
+
+export async function deleteReminderApi(id: string): Promise<void> {
+  const r = await fetch(`/api/reminders?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`Failed to delete reminder (${r.status})`)
+}
+
+/**
+ * Legacy localStorage helpers — kept for the one-shot migration of any
+ * reminders still stored locally on a user's browser. Once migrateLocalStorage()
+ * has run successfully, we clear them.
+ */
+const STORAGE_KEY = 'war-room.reminders'
+const MIGRATED_KEY = 'war-room.reminders-migrated'
+
+export function loadLocalReminders(): Reminder[] {
   if (typeof window === 'undefined') return []
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
@@ -49,8 +118,24 @@ export function loadReminders(): Reminder[] {
   } catch { return [] }
 }
 
-export function saveReminders(items: Reminder[]) {
-  try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(items)) } catch {}
+export async function migrateLocalReminders(): Promise<number> {
+  if (typeof window === 'undefined') return 0
+  if (window.localStorage.getItem(MIGRATED_KEY)) return 0
+  const local = loadLocalReminders()
+  if (local.length === 0) {
+    window.localStorage.setItem(MIGRATED_KEY, new Date().toISOString())
+    return 0
+  }
+  let uploaded = 0
+  for (const r of local) {
+    try {
+      await createReminderApi({ text: r.text, dueDate: r.dueDate, recurrence: r.recurrence })
+      uploaded += 1
+    } catch { /* swallow — best-effort migration */ }
+  }
+  window.localStorage.removeItem(STORAGE_KEY)
+  window.localStorage.setItem(MIGRATED_KEY, new Date().toISOString())
+  return uploaded
 }
 
 const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
