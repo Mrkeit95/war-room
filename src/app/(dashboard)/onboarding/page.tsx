@@ -88,18 +88,15 @@ export default async function OnboardingPage() {
 
   const needsAttention = !diagnostics.envVarSet || diagnostics.modelsInDb === 0
 
-  const activeGroupTitle = models[0]?.group_title ?? null
-
   return (
     <div>
       <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Model onboarding</h1>
           <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-            Upcoming pages · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
+            Pages still to onboard (start date today or later) · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
-            {activeGroupTitle && <>Batch: <span style={{ color: 'var(--text-2)' }}>{activeGroupTitle}</span> · </>}
             Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} total model{diagnostics.modelsInDb === 1 ? '' : 's'} in db
           </div>
         </div>
