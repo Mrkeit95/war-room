@@ -101,16 +101,21 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 10 }}>
             <KpiCard
-              label="PH recruiting + training"
-              value={fmt(bucket('typeform') + bucket('passed') + bucket('pending') + bucket('scheduled') + bucket('training'))}
-              meta="recruiting → end of training"
-              segment={`${regionCode}:all`}
+              label="PH Recruiting"
+              value={fmt(bucket('typeform') + bucket('passed') + bucket('pending') + bucket('scheduled'))}
+              meta="Typeform → scheduled interview"
+              href={`/candidates?region=PH&bucket=typeform,passed,pending,scheduled`}
             />
-            <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
+            <KpiCard
+              label="PH Training"
+              value={fmt(bucket('training'))}
+              meta="Week 1–3 + TB probation"
+              segment={`${regionCode}:training`}
+            />
             <KpiCard label="Managers in this sector" value={fmt(stats?.byManager.length ?? 0)} meta="recruiters + trainers + leads" href="/managers" />
           </div>
           <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 14, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
-            Heads up: PH board also hosts the global pool (Standby · Active · Promoted · PTO · Offboarded — chatters from all regions). Those totals show on the dashboard hero and <Link href="/standby" style={{ color: 'var(--text-2)' }}>/standby</Link> — not here, since they aren&apos;t PH-specific.
+            Cross-region pool (Active · Standby · PTO · Promoted · Offboarded) lives in its own section in the sidebar — those chatters come from every region, not just PH.
           </div>
         </>
       ) : (

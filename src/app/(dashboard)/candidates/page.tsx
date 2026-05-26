@@ -22,9 +22,16 @@ type Filters = {
   manager?: string
   region?: string
   bucket?: string         // comma-separated supported: "pending,scheduled"
+  stage?: string          // single canonical stage (e.g. "active", "pto", "promoted") — overrides bucket
   board?: string          // BOARD 1 / BOARD 2 / TRAINING BOARD / "none" for blank
   status?: 'pipeline' | 'offboarded' | 'all'
 }
+
+const VALID_STAGES = new Set<string>([
+  'typeform','passed_typeform','pending_interview','scheduled_interview','pending_onboarding',
+  'pending_week_1','week_1_training','week_2_training','week_3_training','training_board',
+  'pool','standby','active','promoted','pto','offboarded',
+])
 
 const STAGES_BY_BUCKET: Record<string, CanonicalStage[]> = {
   typeform: ['typeform'],
@@ -49,7 +56,9 @@ async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyn
 
     if (filters.manager) q = q.eq('assigned_manager', filters.manager)
     if (filters.region) q = q.eq('region', filters.region)
-    if (filters.bucket) {
+    if (filters.stage) {
+      q = q.eq('current_stage', filters.stage)
+    } else if (filters.bucket) {
       const bucketKeys = filters.bucket.split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
       const stages: CanonicalStage[] = []
       for (const b of bucketKeys) {
@@ -57,7 +66,7 @@ async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyn
         if (s) stages.push(...s)
       }
       if (stages.length > 0) q = q.in('current_stage', stages)
-    }
+    } else { /* no stage/bucket filter — show all of selected status */ }
     if (filters.board) {
       if (filters.board.toLowerCase() === 'none') q = q.is('board_assignment', null)
       else q = q.eq('board_assignment', filters.board)
@@ -86,16 +95,21 @@ function tierBadge(tier: string | null) {
   )
 }
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string; board?: string; status?: string }> }) {
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string; stage?: string; board?: string; status?: string }> }) {
   const params = await searchParams
   const statusRaw = params.status?.toLowerCase()
   const status: Filters['status'] = statusRaw === 'offboarded' || statusRaw === 'all' ? statusRaw : undefined
+  const stageRaw = params.stage?.toLowerCase()
+  const stage = stageRaw && VALID_STAGES.has(stageRaw) ? stageRaw : undefined
+  // If filtering by a stage like 'offboarded' implicitly need status=all so the default pipeline filter doesn't exclude it
+  const effectiveStatus: Filters['status'] = status ?? (stage === 'offboarded' ? 'offboarded' : undefined)
   const filters: Filters = {
     manager: params.manager?.trim() || undefined,
     region: params.region?.toUpperCase() || undefined,
     bucket: params.bucket?.toLowerCase() || undefined,
+    stage,
     board: params.board?.trim() || undefined,
-    status,
+    status: effectiveStatus,
   }
   const result = await fetchCandidates(filters)
   const activeFilters = Object.entries(filters).filter(([, v]) => !!v) as [keyof Filters, string][]
@@ -291,12 +305,16 @@ function FilterRow({ label, options, current, hrefFor }: {
   )
 }
 
-function buildFilterHref(current: { manager?: string; region?: string; bucket?: string; board?: string; status?: string }, key: 'manager' | 'region' | 'bucket' | 'board' | 'status', value: string | undefined): string {
+function buildFilterHref(current: { manager?: string; region?: string; bucket?: string; stage?: string; board?: string; status?: string }, key: 'manager' | 'region' | 'bucket' | 'stage' | 'board' | 'status', value: string | undefined): string {
   const params = new URLSearchParams()
   const next = { ...current, [key]: value }
+  // Setting bucket clears stage (and vice versa) — they're mutually exclusive in the query
+  if (key === 'bucket' && value) next.stage = undefined
+  if (key === 'stage' && value) next.bucket = undefined
   if (next.manager) params.set('manager', next.manager)
   if (next.region) params.set('region', next.region)
   if (next.bucket) params.set('bucket', next.bucket)
+  if (next.stage) params.set('stage', next.stage)
   if (next.board) params.set('board', next.board)
   if (next.status) params.set('status', next.status)
   const qs = params.toString()

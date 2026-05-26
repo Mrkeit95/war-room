@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 
 const navMain = [
   { route: '/', label: 'Dashboard', icon: (
@@ -28,10 +28,15 @@ const navDepts = [
   { route: '/departments/uk', label: 'United Kingdom', flag: '🇬🇧', count: 9 },
 ]
 
+const navPool = [
+  { route: '/standby', label: 'Standby', icon: '⏸' },
+  { route: '/candidates?stage=active', label: 'Active', icon: '●' },
+  { route: '/candidates?stage=pto', label: 'PTO', icon: '◐' },
+  { route: '/candidates?stage=promoted', label: 'Promoted', icon: '↑' },
+  { route: '/candidates?status=offboarded', label: 'Offboarded', icon: '✕' },
+]
+
 const navInsights = [
-  { route: '/standby', label: 'Standby', icon: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-  )},
   { route: '/managers', label: 'Managers & shifts', icon: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
   )},
@@ -48,9 +53,26 @@ const navInsights = [
 
 export default function Sidebar() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
 
   const isActive = (route: string) => {
-    if (route === '/') return pathname === '/'
+    if (route === '/') return pathname === '/' && searchParams.toString() === ''
+    // For routes with query string (e.g. /candidates?stage=active): require pathname + matching params
+    const qIdx = route.indexOf('?')
+    if (qIdx >= 0) {
+      const routePath = route.slice(0, qIdx)
+      if (pathname !== routePath) return false
+      const routeParams = new URLSearchParams(route.slice(qIdx + 1))
+      for (const [k, v] of routeParams) {
+        if (searchParams.get(k) !== v) return false
+      }
+      return true
+    }
+    // Plain route: matches if pathname starts with it AND no conflicting query-string variant is active
+    if (route === '/candidates') {
+      // Special case: /candidates with stage/status filter should NOT highlight base /candidates
+      return pathname === '/candidates' && !searchParams.get('stage') && !searchParams.get('status')
+    }
     return pathname.startsWith(route)
   }
 
@@ -120,6 +142,30 @@ export default function Sidebar() {
                 padding: '1px 7px', borderRadius: 10, fontWeight: 500,
                 fontFamily: 'monospace',
               }}>{item.count}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {/* Cross-region pool — chatters not tied to a specific region */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', padding: '0 12px 8px', fontWeight: 500 }}>
+          Cross-region pool
+        </div>
+        {navPool.map(item => (
+          <Link key={item.route} href={item.route} style={{ textDecoration: 'none' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '9px 12px', borderRadius: 8,
+              color: isActive(item.route) ? 'var(--text)' : 'var(--text-2)',
+              fontSize: 13.5,
+              background: isActive(item.route) ? 'var(--surface-2)' : 'transparent',
+              border: `1px solid ${isActive(item.route) ? 'var(--border)' : 'transparent'}`,
+              marginBottom: 2,
+              cursor: 'pointer',
+            }}>
+              <span style={{ fontSize: 14, width: 16, textAlign: 'center', color: 'var(--text-3)' }}>{item.icon}</span>
+              <span>{item.label}</span>
             </div>
           </Link>
         ))}
