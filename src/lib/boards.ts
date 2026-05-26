@@ -72,12 +72,14 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   if (gErr) throw new Error(`getBoardsBreakdown (groups): ${gErr.message}`)
   type GroupRow = { board_name: string; pod: string | null; team: string | null; group_title: string }
   const podTeamToBoard = new Map<string, string>()    // key: `${pod}|${team}` → board_name
+  const podToBoard = new Map<string, string>()        // key: pod → board_name (each pod lives on one AE board)
   for (const row of (groupsRaw ?? []) as GroupRow[]) {
     const reparsed = parseBoardGroup(row.group_title)
     const pod = (reparsed.pod ?? row.pod)?.toUpperCase() ?? null
     const team = (reparsed.team ?? row.team)?.toUpperCase() ?? null
-    if (!pod || !team) continue
-    podTeamToBoard.set(`${pod}|${team}`, row.board_name)
+    if (!pod) continue
+    if (team) podTeamToBoard.set(`${pod}|${team}`, row.board_name)
+    if (!podToBoard.has(pod)) podToBoard.set(pod, row.board_name)
   }
 
   // 1b. Build name → assigned_manager map from candidates (so we can label each chatter with their manager).
@@ -156,11 +158,14 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
     }
   }
 
-  // 4. Bucket teams by their authoritative board.
+  // 4. Bucket teams by their authoritative board. If (pod, team) isn't an
+  //    explicit entry on any AE board, fall back to the board that owns the
+  //    pod — a pod doesn't change boards just because a new team got added.
   const boardMap = new Map<string, Map<string, TeamEntry[]>>()
   for (const acc of teamMap.values()) {
-    const lookupKey = `${acc.pod.toUpperCase()}|${acc.team.toUpperCase()}`
-    const board = podTeamToBoard.get(lookupKey) ?? 'Unmapped'
+    const podUpper = acc.pod.toUpperCase()
+    const lookupKey = `${podUpper}|${acc.team.toUpperCase()}`
+    const board = podTeamToBoard.get(lookupKey) ?? podToBoard.get(podUpper) ?? 'Unmapped'
 
     const chatters: ChatterEntry[] = []
     for (const [name, chatterAcc] of acc.chatters) {
