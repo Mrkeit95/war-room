@@ -1,7 +1,9 @@
 import Link from 'next/link'
-import { getBoardsBreakdown, slugifyBoard, type BoardEntry } from '@/lib/boards'
+import { getBoardsBreakdown, getBoardsDebug, slugifyBoard, type BoardEntry, type BoardLayoutDebugRow, type UnmappedTeam } from '@/lib/boards'
 import { BOARD_TO_AE } from '@/lib/manager_sections'
 import { createAdminClient } from '@/lib/supabase/admin'
+import SyncButton from '@/app/(dashboard)/onboarding/SyncButton'
+import BoardsSearch from './BoardsSearch'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,9 +19,10 @@ async function getBoardsDiagnostics() {
 
 export default async function BoardsPage() {
   let boards: BoardEntry[]
+  let debug: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[] } = { layoutRows: [], unmappedTeams: [] }
   const diagnostics = await getBoardsDiagnostics()
   try {
-    boards = await getBoardsBreakdown()
+    [boards, debug] = await Promise.all([getBoardsBreakdown(), getBoardsDebug()])
   } catch (err) {
     return (
       <div>
@@ -43,14 +46,17 @@ export default async function BoardsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Boards</h1>
-        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-          PODs, teams, pages, and chatters grouped by AE board. Mapping comes from the 4 AE board layouts on Monday (BOARD 1/2/3/TRAINING BOARD).
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Boards</h1>
+          <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+            PODs, teams, pages, and chatters grouped by AE board. Mapping comes from the 4 AE board layouts on Monday (BOARD 1/2/3/TRAINING BOARD).
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
+            {totals.pods} pods · {totals.pages} pages · {totals.chatters} chatters · {diagnostics.boardGroupsCount ?? '?'} pod-team mappings in db
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
-          {totals.pods} pods · {totals.pages} pages · {totals.chatters} chatters · {diagnostics.boardGroupsCount ?? '?'} pod-team mappings in db
-        </div>
+        <SyncButton subtle />
       </div>
 
       {diagnostics.boardGroupsTableMissing && (
@@ -81,10 +87,92 @@ export default async function BoardsPage() {
         </div>
       ) : null}
 
+      <BoardsSearch boards={boards} />
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
         {boards.map(b => (
           <BoardCard key={b.board} board={b} />
         ))}
+      </div>
+
+      {/* Debug: what the layout sync pulled + which chatter-schedule teams aren't matching */}
+      <DebugPanel layoutRows={debug.layoutRows} unmappedTeams={debug.unmappedTeams} />
+    </div>
+  )
+}
+
+function DebugPanel({ layoutRows, unmappedTeams }: { layoutRows: BoardLayoutDebugRow[]; unmappedTeams: UnmappedTeam[] }) {
+  if (layoutRows.length === 0 && unmappedTeams.length === 0) return null
+
+  // Group layout rows by board name for easier scanning
+  const byBoard = new Map<string, BoardLayoutDebugRow[]>()
+  for (const r of layoutRows) {
+    const arr = byBoard.get(r.boardName) ?? []
+    arr.push(r)
+    byBoard.set(r.boardName, arr)
+  }
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', fontWeight: 600, marginBottom: 14 }}>
+        Layout debug · for figuring out why something isn&apos;t mapping
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 14 }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 10 }}>
+            board_groups · {layoutRows.length} group{layoutRows.length === 1 ? '' : 's'} synced
+          </div>
+          {layoutRows.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>
+              Empty — hit Sync now (or the chat-stars token can&apos;t reach the 4 AE boards).
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {[...byBoard.entries()].map(([board, rows]) => (
+                <details key={board} style={{ fontSize: 11.5 }}>
+                  <summary style={{ cursor: 'pointer', padding: '4px 0', color: 'var(--text-2)', fontWeight: 500 }}>
+                    {board} · {rows.length}
+                  </summary>
+                  <div style={{ paddingLeft: 14, paddingTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {rows.map((r, i) => {
+                      const ok = !!r.pod && !!r.team
+                      return (
+                        <div key={i} style={{ fontFamily: 'monospace', fontSize: 11, color: ok ? 'var(--text-3)' : 'var(--amber)' }}>
+                          <span style={{ display: 'inline-block', minWidth: 90 }}>
+                            {ok ? `${r.pod} · ${r.team}` : '— · —'}
+                          </span>
+                          <span>{r.groupTitle}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: unmappedTeams.length > 0 ? 'var(--amber)' : 'var(--text-2)', marginBottom: 10 }}>
+            Unmapped chatter-schedule teams · {unmappedTeams.length}
+          </div>
+          {unmappedTeams.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>
+              Everything in the chatter schedule maps to a board.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {unmappedTeams.map(t => (
+                <div key={`${t.pod}|${t.team}`} style={{ fontSize: 11.5, fontFamily: 'monospace' }}>
+                  <div style={{ color: 'var(--amber)' }}>{t.pod} · {t.team} <span style={{ color: 'var(--text-4)', fontFamily: 'inherit' }}>({t.chatterCount} chatter{t.chatterCount === 1 ? '' : 's'})</span></div>
+                  <div style={{ color: 'var(--text-4)', fontFamily: 'inherit', fontSize: 11, paddingLeft: 12 }}>{t.pageNames.join(' · ') || '—'}</div>
+                  <div style={{ color: 'var(--text-4)', fontFamily: 'inherit', fontSize: 10.5, paddingLeft: 12, fontStyle: 'italic' }}>{t.groupTitle}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

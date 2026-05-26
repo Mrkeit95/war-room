@@ -306,10 +306,13 @@ export type ParsedPageAssignment = {
   page_name: string | null
   shift_name: string
   chatter_name: string | null
+  schedule_by_day: Record<string, string | null>   // Monday → "3am-11am EST", "OFF", ...
   monday_created_at: string | null
   monday_updated_at: string | null
   raw_data: MondayItem
 }
+
+const SCHEDULE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const
 
 /**
  * Parse "POD C - T8 CHINKERBELL" → { pod: "C", team: "T8", page_name: "CHINKERBELL" }.
@@ -330,6 +333,10 @@ export function parsePageGroupTitle(title: string | null): { pod: string | null;
 export function parsePageAssignmentItem(item: MondayItem, boardId: string): ParsedPageAssignment {
   const chatter = findCol(item, 'Chatter', 'CHATTER')
   const { pod, team, page_name } = parsePageGroupTitle(item.group?.title ?? null)
+  const schedule_by_day: Record<string, string | null> = {}
+  for (const day of SCHEDULE_DAYS) {
+    schedule_by_day[day] = textOf(findCol(item, day, day.toUpperCase()))
+  }
   return {
     boardId,
     monday_item_id: item.id,
@@ -339,6 +346,7 @@ export function parsePageAssignmentItem(item: MondayItem, boardId: string): Pars
     page_name,
     shift_name: item.name,
     chatter_name: textOf(chatter),
+    schedule_by_day,
     monday_created_at: item.created_at,
     monday_updated_at: item.updated_at,
     raw_data: item,

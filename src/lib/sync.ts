@@ -249,6 +249,7 @@ function buildPageAssignmentUpsertRow(a: ParsedPageAssignment): Record<string, u
     page_name: a.page_name,
     shift_name: a.shift_name,
     chatter_name: a.chatter_name,
+    schedule_by_day: a.schedule_by_day,
     monday_created_at: a.monday_created_at,
     monday_updated_at: a.monday_updated_at,
     last_synced_at: new Date().toISOString(),

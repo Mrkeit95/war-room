@@ -6,6 +6,7 @@
  */
 
 import { createAdminClient } from './supabase/admin'
+import { splitChatterNames } from './boards'
 
 // Capacity rule (per user): every $40k of revenue = 1 team = 4 chatters
 // for 24h coverage. Sub-$40k pages are paired off and excluded.
@@ -95,8 +96,8 @@ async function getAssignmentsByPage(modelNames: string[]): Promise<AssignmentLoo
       if (!groupTitle.includes(upper)) continue
 
       const entry = result[modelName]
-      if (row.chatter_name && row.chatter_name.trim()) {
-        entry.chatters.add(row.chatter_name.trim())
+      for (const chatter of splitChatterNames(row.chatter_name)) {
+        entry.chatters.add(chatter)
       }
       if (!entry.pod && row.pod) entry.pod = row.pod
       if (!entry.team && row.team) entry.team = row.team

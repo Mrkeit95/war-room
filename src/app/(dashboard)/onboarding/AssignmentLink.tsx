@@ -5,7 +5,7 @@ import type { ModelWithCapacity } from '@/lib/models'
 
 type Shift = {
   shiftName: string
-  chatterName: string | null
+  chatterName: string             // empty string when slot is unfilled
   groupTitle: string | null
   pod: string | null
   team: string | null
