@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic'
 export default function SouthAmericaPage() {
   return (
     <DepartmentPage
-      flag="🇧🇷"
+      flag="🇨🇴"
       name="South America"
       regionCode="sa"
       subtitle="Sebastien · vertical owner"

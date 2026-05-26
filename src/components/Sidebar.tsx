@@ -27,7 +27,7 @@ const navMain = [
 const navDepts = [
   { route: '/departments/ph', label: 'Philippines', flag: '🇵🇭', count: 173 },
   { route: '/departments/eu', label: 'Europe', flag: '🇪🇺', count: 33 },
-  { route: '/departments/sa', label: 'South America', flag: '🇧🇷', count: 29 },
+  { route: '/departments/sa', label: 'South America', flag: '🇨🇴', count: 29 },
   { route: '/departments/uk', label: 'United Kingdom', flag: '🇬🇧', count: 9 },
 ]
 

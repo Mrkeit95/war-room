@@ -115,7 +115,7 @@ export function filterCandidates(filter: SegmentFilter): Candidate[] {
 const REGION_LABELS: Record<Region, { flag: string; name: string }> = {
   PH: { flag: '🇵🇭', name: 'Philippines' },
   EU: { flag: '🇪🇺', name: 'Europe' },
-  SA: { flag: '🇧🇷', name: 'South America' },
+  SA: { flag: '🇨🇴', name: 'South America' },
   UK: { flag: '🇬🇧', name: 'United Kingdom' },
 }
 

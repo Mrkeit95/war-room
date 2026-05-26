@@ -180,7 +180,16 @@ export const MANAGER_SHIFTS: Record<string, ShiftConfig> = {
     label: 'UK head',
     blocks: [{ day: 'Mon–Fri', start: '1pm', end: '9pm' }],
   },
-  // Aleksandar Simic (EU): shift TBD — left intentionally blank
+  'Aleksandar Simic': {
+    label: 'EU head',
+    blocks: [
+      { day: 'Mon', start: '6pm', end: '2am' },
+      { day: 'Tue', start: '6pm', end: '2am' },
+      { day: 'Wed', start: '6pm', end: '2am' },
+      { day: 'Thu', start: '4pm', end: '12pm' },
+      { day: 'Fri', start: '4pm', end: '12pm' },
+    ],
+  },
 }
 
 /** Back-compat alias for callers that expect the old name. */

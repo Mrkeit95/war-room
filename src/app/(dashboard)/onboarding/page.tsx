@@ -3,6 +3,7 @@ import { getOnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
 import { getLastSyncedAt } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
 import SyncButton from './SyncButton'
+import AssignmentLink from './AssignmentLink'
 
 export const dynamic = 'force-dynamic'
 
@@ -215,21 +216,23 @@ export default async function OnboardingPage() {
   )
 }
 
+const GRID_COLS = 'minmax(0, 1.7fr) 96px 80px 80px 78px 64px minmax(120px, auto)'
+
 function HeaderRow() {
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 0.65fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
+      gridTemplateColumns: GRID_COLS,
       gap: 14, padding: '10px 4px',
       borderBottom: '1px solid var(--border)',
       fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 600,
     }}>
       <div>Model</div>
       <div>Start</div>
-      <div>Revenue</div>
+      <div style={{ textAlign: 'right' }}>Revenue</div>
       <div>Pod · Team</div>
       <div>Board</div>
-      <div>Teams</div>
+      <div style={{ textAlign: 'right' }}>Teams</div>
       <div style={{ textAlign: 'right' }}>Still need</div>
     </div>
   )
@@ -238,52 +241,64 @@ function HeaderRow() {
 function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean }) {
   const dayChip = dayChipColor(model.daysUntilStart)
   const paired = model.teamsNeeded === 0 && (model.revenue ?? 0) > 0
-  const stillColor = model.chattersStillNeeded === 0 ? 'var(--green)' : model.chattersStillNeeded > 0 ? 'var(--blue)' : 'var(--text-4)'
+  const stillColor = model.chattersStillNeeded === 0 ? 'var(--green)' : 'var(--blue)'
+
   return (
     <div style={{
       display: 'grid',
-      gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 0.9fr) minmax(0, 0.65fr) minmax(0, 0.7fr) minmax(0, 0.8fr) minmax(0, 0.8fr) auto',
+      gridTemplateColumns: GRID_COLS,
       alignItems: 'center', gap: 14,
       padding: '14px 4px',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
+      minHeight: 56,
     }}>
+      {/* Model */}
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</div>
         <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {[model.agency, model.page_type].filter(Boolean).join(' · ') || '—'}
         </div>
       </div>
-      <div style={{ minWidth: 0 }}>
+
+      {/* Start */}
+      <div>
         <span style={{
           display: 'inline-block', fontSize: 11.5, padding: '3px 9px', borderRadius: 4,
           background: dayChip.bg, color: dayChip.fg, fontWeight: 500,
           whiteSpace: 'nowrap',
         }}>{startLabel(model.start_date, model.daysUntilStart)}</span>
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)' }}>{revenueLabel(model.revenue)}</div>
+
+      {/* Revenue */}
+      <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)', textAlign: 'right' }}>{revenueLabel(model.revenue)}</div>
+
+      {/* Pod · Team */}
       <div style={{ fontSize: 11.5, fontFamily: 'monospace', color: model.pod || model.team ? 'var(--text-2)' : 'var(--text-4)' }}>
-        {model.pod || model.team ? `${model.pod ?? '—'} · ${model.team ?? '—'}` : <span style={{ fontStyle: 'italic' }}>not scheduled</span>}
+        {model.pod || model.team ? `${model.pod ?? '—'} · ${model.team ?? '—'}` : <span style={{ fontStyle: 'italic', fontFamily: 'inherit' }}>not scheduled</span>}
       </div>
-      <div style={{ fontSize: 11.5, color: 'var(--text-2)', fontFamily: 'monospace' }}>{model.board || <span style={{ color: 'var(--text-4)', fontStyle: 'italic' }}>—</span>}</div>
+
+      {/* Board */}
+      <div style={{ fontSize: 11.5, color: 'var(--text-2)', fontFamily: 'monospace' }}>
+        {model.board || <span style={{ color: 'var(--text-4)', fontStyle: 'italic', fontFamily: 'inherit' }}>—</span>}
+      </div>
+
+      {/* Teams */}
+      <div style={{ fontFamily: 'monospace', fontSize: 13, color: paired ? 'var(--text-4)' : 'var(--text)', textAlign: 'right' }}>
+        {paired ? '—' : model.teamsNeeded}
+      </div>
+
+      {/* Still need (or paired badge) */}
       {paired ? (
-        <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+        <div style={{ textAlign: 'right' }}>
           <span style={{
-            fontSize: 10.5, padding: '3px 9px', borderRadius: 4,
+            fontSize: 10, padding: '3px 9px', borderRadius: 4,
             background: 'var(--surface-3)', color: 'var(--text-3)',
             fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em',
             whiteSpace: 'nowrap',
-          }}>Paired · sub-$40k</span>
+          }}>Paired</span>
         </div>
       ) : (
-        <>
-          <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)' }}>{model.teamsNeeded}</div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: stillColor, lineHeight: 1 }}>{model.chattersStillNeeded}</div>
-            <div style={{ fontFamily: 'monospace', fontSize: 10.5, color: 'var(--text-4)', marginTop: 3 }}>
-              {model.chattersAlreadyAssigned} / {model.chattersNeeded} assigned
-            </div>
-          </div>
-        </>
+        <AssignmentLink model={model} stillColor={stillColor} />
       )}
     </div>
   )

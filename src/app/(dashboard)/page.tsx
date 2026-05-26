@@ -147,7 +147,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
         {[
           { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', color: 'var(--amber)', slug: 'ph', region: 'PH' as Region },
           { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', color: 'var(--green)', slug: 'eu', region: 'EU' as Region },
-          { flag: '🇧🇷', name: 'South America', manager: 'Sebastien', color: 'var(--amber)', slug: 'sa', region: 'SA' as Region },
+          { flag: '🇨🇴', name: 'South America', manager: 'Sebastien', color: 'var(--amber)', slug: 'sa', region: 'SA' as Region },
           { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', color: 'var(--red)', slug: 'uk', region: 'UK' as Region },
         ].map((dept) => {
           const phase = getRegionPhase(dept.region)
@@ -222,7 +222,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <RegionChip label="All" href="/" active={!regionFilter} />
             <RegionChip label="🇵🇭 PH" href="/?region=PH" active={regionFilter === 'PH'} />
             <RegionChip label="🇪🇺 EU" href="/?region=EU" active={regionFilter === 'EU'} />
-            <RegionChip label="🇧🇷 SA" href="/?region=SA" active={regionFilter === 'SA'} />
+            <RegionChip label="🇨🇴 SA" href="/?region=SA" active={regionFilter === 'SA'} />
             <RegionChip label="🇬🇧 UK" href="/?region=UK" active={regionFilter === 'UK'} />
           </div>
           {visibleAlerts.length === 0 ? (

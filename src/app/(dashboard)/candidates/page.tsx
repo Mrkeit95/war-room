@@ -165,7 +165,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
           { label: 'All', value: undefined },
           { label: '🇵🇭 PH', value: 'PH' },
           { label: '🇪🇺 EU', value: 'EU' },
-          { label: '🇧🇷 SA', value: 'SA' },
+          { label: '🇨🇴 SA', value: 'SA' },
           { label: '🇬🇧 UK', value: 'UK' },
         ]} current={filters.region} hrefFor={(v) => buildFilterHref(filters, 'region', v)} />
         <FilterRow label="Stage" options={[
