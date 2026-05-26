@@ -95,20 +95,39 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
         </div>
       )}
 
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 14 }}>
-        <KpiCard label="In pipeline" value={fmt(stats?.inPipeline ?? 0)} meta={stats ? `${stats.total.toLocaleString()} total · ${(stats.total - stats.inPipeline).toLocaleString()} offboarded` : '—'} segment={`${regionCode}:all`} />
-        <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
-        <KpiCard label="Active hires" value={fmt(bucket('active'))} meta="active + promoted + PTO" segment={`${regionCode}:active`} />
-        <KpiCard
-          label="Offboarded"
-          value={fmt(stats ? stats.total - stats.inPipeline : 0)}
-          meta="lifetime · click to view"
-          color="var(--text-3)"
-          href={`/candidates?region=${region}&status=offboarded`}
-        />
-        <KpiCard label="Managers" value={fmt(stats?.byManager.length ?? 0)} meta="people in this sector" />
-      </div>
+      {/* KPIs — PH excludes Active + Offboarded because the PH board hosts those for ALL regions
+          (cross-region operational hub). Showing them under "Philippines" is misleading. */}
+      {region === 'PH' ? (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 10 }}>
+            <KpiCard
+              label="PH recruiting + training"
+              value={fmt(bucket('typeform') + bucket('passed') + bucket('pending') + bucket('scheduled') + bucket('training'))}
+              meta="recruiting → end of training"
+              segment={`${regionCode}:all`}
+            />
+            <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
+            <KpiCard label="Managers in this sector" value={fmt(stats?.byManager.length ?? 0)} meta="recruiters + trainers + leads" href="/managers" />
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 14, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+            Heads up: PH board also hosts the global pool (Standby · Active · Promoted · PTO · Offboarded — chatters from all regions). Those totals show on the dashboard hero and <Link href="/standby" style={{ color: 'var(--text-2)' }}>/standby</Link> — not here, since they aren&apos;t PH-specific.
+          </div>
+        </>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 14 }}>
+          <KpiCard label="In pipeline" value={fmt(stats?.inPipeline ?? 0)} meta={stats ? `${stats.total.toLocaleString()} total · ${(stats.total - stats.inPipeline).toLocaleString()} offboarded` : '—'} segment={`${regionCode}:all`} />
+          <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
+          <KpiCard label="Active hires" value={fmt(bucket('active'))} meta="active + promoted + PTO" segment={`${regionCode}:active`} />
+          <KpiCard
+            label="Offboarded"
+            value={fmt(stats ? stats.total - stats.inPipeline : 0)}
+            meta="lifetime · click to view"
+            color="var(--text-3)"
+            href={`/candidates?region=${region}&status=offboarded`}
+          />
+          <KpiCard label="Managers" value={fmt(stats?.byManager.length ?? 0)} meta="people in this sector" />
+        </div>
+      )}
 
       {/* High-level pipeline (7 buckets) */}
       <Panel title="Pipeline · 7 stages" style={{ marginBottom: 14 }}>

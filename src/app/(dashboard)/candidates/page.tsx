@@ -144,21 +144,46 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
         </div>
       </div>
 
-      {activeFilters.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500 }}>Filtered by</span>
-          {activeFilters.map(([key, value]) => (
-            <span key={key} style={{
-              fontSize: 12, padding: '4px 10px', borderRadius: 5, fontWeight: 500,
-              background: 'rgba(96,165,250,0.10)', color: 'var(--blue)',
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-            }}>
-              {key}: {value}
-            </span>
-          ))}
-          <Link href="/candidates" style={{ fontSize: 12, color: 'var(--text-3)', textDecoration: 'none', marginLeft: 4 }}>Clear all ×</Link>
-        </div>
-      )}
+      {/* Filter chip rows */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', marginBottom: 18, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <FilterRow label="Region" options={[
+          { label: 'All', value: undefined },
+          { label: '🇵🇭 PH', value: 'PH' },
+          { label: '🇪🇺 EU', value: 'EU' },
+          { label: '🇧🇷 SA', value: 'SA' },
+          { label: '🇬🇧 UK', value: 'UK' },
+        ]} current={filters.region} hrefFor={(v) => buildFilterHref(filters, 'region', v)} />
+        <FilterRow label="Stage" options={[
+          { label: 'All', value: undefined },
+          { label: 'Typeform', value: 'typeform' },
+          { label: 'Passed', value: 'passed' },
+          { label: 'Pending interview', value: 'pending' },
+          { label: 'Scheduled interview', value: 'scheduled' },
+          { label: 'Interviews (both)', value: 'pending,scheduled' },
+          { label: 'Training', value: 'training' },
+          { label: 'Standby', value: 'standby' },
+          { label: 'Active', value: 'active' },
+        ]} current={filters.bucket} hrefFor={(v) => buildFilterHref(filters, 'bucket', v)} />
+        <FilterRow label="Board" options={[
+          { label: 'All', value: undefined },
+          { label: 'Board 1', value: 'BOARD 1' },
+          { label: 'Board 2', value: 'BOARD 2' },
+          { label: 'Board 3', value: 'BOARD 3' },
+          { label: 'Training Board', value: 'TRAINING BOARD' },
+          { label: 'No BOARD', value: 'none' },
+        ]} current={filters.board} hrefFor={(v) => buildFilterHref(filters, 'board', v)} />
+        {activeFilters.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 4, borderTop: '1px solid var(--border)', marginTop: 4 }}>
+            <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500 }}>Active</span>
+            {activeFilters.map(([key, value]) => (
+              <span key={key} style={{ fontSize: 11.5, padding: '3px 8px', borderRadius: 4, fontWeight: 500, background: 'rgba(96,165,250,0.10)', color: 'var(--blue)' }}>
+                {key}: {value}
+              </span>
+            ))}
+            <Link href="/candidates" style={{ fontSize: 11.5, color: 'var(--text-3)', textDecoration: 'none', marginLeft: 'auto' }}>Clear all ×</Link>
+          </div>
+        )}
+      </div>
 
       {rows.length === 0 ? (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 32, textAlign: 'center' }}>
@@ -234,6 +259,46 @@ function buildHref(current: { manager?: string; region?: string; bucket?: string
   if (current.board) params.set('board', current.board)
   const status = 'status' in override ? override.status : current.status
   if (status) params.set('status', status)
+  const qs = params.toString()
+  return qs ? `/candidates?${qs}` : '/candidates'
+}
+
+function FilterRow({ label, options, current, hrefFor }: {
+  label: string
+  options: { label: string; value: string | undefined }[]
+  current: string | undefined
+  hrefFor: (value: string | undefined) => string
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--text-4)', fontWeight: 500, minWidth: 56 }}>{label}</span>
+      {options.map(o => {
+        const active = (current ?? '') === (o.value ?? '')
+        return (
+          <Link
+            key={o.label}
+            href={hrefFor(o.value)}
+            style={{
+              fontSize: 11.5, padding: '4px 10px', borderRadius: 5, textDecoration: 'none', fontWeight: 500,
+              background: active ? 'var(--surface-2)' : 'transparent',
+              color: active ? 'var(--text)' : 'var(--text-3)',
+              border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+            }}
+          >{o.label}</Link>
+        )
+      })}
+    </div>
+  )
+}
+
+function buildFilterHref(current: { manager?: string; region?: string; bucket?: string; board?: string; status?: string }, key: 'manager' | 'region' | 'bucket' | 'board' | 'status', value: string | undefined): string {
+  const params = new URLSearchParams()
+  const next = { ...current, [key]: value }
+  if (next.manager) params.set('manager', next.manager)
+  if (next.region) params.set('region', next.region)
+  if (next.bucket) params.set('bucket', next.bucket)
+  if (next.board) params.set('board', next.board)
+  if (next.status) params.set('status', next.status)
   const qs = params.toString()
   return qs ? `/candidates?${qs}` : '/candidates'
 }

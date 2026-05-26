@@ -101,6 +101,64 @@ export const REGION_SOLE_OWNER: Partial<Record<Region, string>> = {
   UK: 'noah whall',
 }
 
+/** PH trainer shifts in PHT (converted from EDT +12h). */
+export type ShiftBlock = { day: string; start: string; end: string; crossesMidnight?: boolean }
+
+export const PH_TRAINER_SHIFTS: Record<string, { label: string; blocks: ShiftBlock[] }> = {
+  'Gwyneth Fuentes': {
+    label: 'Morning shift',
+    blocks: [
+      { day: 'Mon', start: '3pm', end: '11pm' },
+      { day: 'Tue', start: '3pm', end: '11pm' },
+      { day: 'Fri', start: '7pm', end: 'Sat 7am', crossesMidnight: true },
+      { day: 'Sat', start: '7pm', end: 'Sun 7am', crossesMidnight: true },
+      { day: 'Sun', start: '3pm', end: '11pm' },
+    ],
+  },
+  'Prince Ellesor Torres': {
+    label: 'Day shift',
+    blocks: [
+      { day: 'Mon', start: '11pm', end: 'Tue 7am', crossesMidnight: true },
+      { day: 'Tue', start: '11pm', end: 'Wed 7am', crossesMidnight: true },
+      { day: 'Wed', start: '7pm', end: 'Thu 7am', crossesMidnight: true },
+      { day: 'Thu', start: '7pm', end: 'Fri 7am', crossesMidnight: true },
+      { day: 'Sun', start: '11pm', end: 'Mon 7am', crossesMidnight: true },
+    ],
+  },
+  'Pamela Amuro Miña': {
+    label: 'Night shift',
+    blocks: [
+      { day: 'Tue', start: '7am', end: '3pm' },
+      { day: 'Wed', start: '7am', end: '7pm' },
+      { day: 'Sat', start: '7am', end: '7pm' },
+      { day: 'Sun', start: '7am', end: '3pm' },
+      { day: 'Mon', start: '7am', end: '3pm' },
+    ],
+  },
+  'Arjay Labado': {
+    label: 'Filler shift',
+    blocks: [
+      { day: 'Tue', start: '7am', end: '7pm' },
+      { day: 'Wed', start: '7am', end: '7pm' },
+      { day: 'Sat', start: '7am', end: '7pm' },
+      { day: 'Sun', start: '7am', end: '7pm' },
+      { day: 'Mon', start: '7am', end: '7pm' },
+    ],
+  },
+  'Andrei Angelo Cando': {
+    label: 'Week 1 lead (Day)',
+    blocks: [
+      { day: 'Mon–Fri', start: '8am', end: '4pm' },
+    ],
+  },
+  'Jose Manuel Galan': {
+    label: 'Week 1 lead (Day)',
+    blocks: [
+      { day: 'Mon–Fri', start: '8am', end: '4pm' },
+    ],
+  },
+}
+
 /** Pretty-name overrides for Monday strings that are lowercase / all-caps. */
 export const MANAGER_DISPLAY_NAMES: Record<string, string> = {
   'apple baez': 'Apple Baez',
