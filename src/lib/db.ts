@@ -300,6 +300,126 @@ function stripCreated(row: BriefingCandidate & { monday_created_at?: string | nu
   }
 }
 
+export type Alert = {
+  id: string
+  severity: 'critical' | 'warning' | 'info'
+  type: 'weak_in_advanced_training' | 'weak_in_early_training' | 'idle_early_stage' | 'long_idle' | 'new_top_tier' | 'stage_bottleneck'
+  title: string
+  meta: string
+  region: Region
+  candidateId?: string
+  candidateName?: string
+}
+
+/**
+ * Compute open alerts from the current candidate state.
+ * No persistence — rederived on each dashboard load.
+ */
+export async function getCurrentAlerts(): Promise<Alert[]> {
+  const supabase = createAdminClient()
+  const { data, error } = await supabase
+    .from('candidates')
+    .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_updated_at, monday_created_at')
+    .neq('current_stage', 'offboarded')
+    .limit(10000)
+  if (error) throw new Error(`getCurrentAlerts: ${error.message}`)
+
+  const now = Date.now()
+  const since24h = now - 24 * 60 * 60 * 1000
+  const veryRecent = now - 7 * 24 * 60 * 60 * 1000   // touched in last 7 days = actively in motion
+  const alerts: Alert[] = []
+
+  // Per-region bucket counters for bottleneck detection
+  const bucketCounts: Record<Region, Record<Exclude<UiBucket, null>, number>> = {
+    PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(), UK: emptyBucket(),
+  }
+
+  type Row = { id: string; name: string; region: Region; tier: string | null; current_stage: CanonicalStage; current_group_title: string | null; assigned_manager: string | null; monday_updated_at: string | null; monday_created_at: string | null }
+
+  for (const c of (data ?? []) as Row[]) {
+    const bucket = uiBucket(c.current_stage)
+    if (bucket) bucketCounts[c.region][bucket] += 1
+
+    const rank = tierRank(c.tier)
+    const updated = c.monday_updated_at ? new Date(c.monday_updated_at).getTime() : 0
+    const created = c.monday_created_at ? new Date(c.monday_created_at).getTime() : 0
+    const daysIdle = updated ? Math.floor((now - updated) / 86_400_000) : 999
+    const stageLabel = c.current_group_title ?? c.current_stage.replace(/_/g, ' ')
+    const mgr = c.assigned_manager ? ` · ${c.assigned_manager}` : ''
+
+    const recentlyActive = updated >= veryRecent
+
+    // Weak tier (T1/T2) in advanced training stages, touched in last 7d = critical
+    if (recentlyActive && rank !== null && rank <= 2 && ['week_2_training', 'week_3_training', 'training_board'].includes(c.current_stage)) {
+      alerts.push({
+        id: `weak_adv:${c.id}`,
+        severity: 'critical',
+        type: 'weak_in_advanced_training',
+        title: `${c.name} · Tier ${rank} in ${stageLabel}`,
+        meta: `${c.region}${mgr} — likely struggling, decide invest vs offboard`,
+        region: c.region, candidateId: c.id, candidateName: c.name,
+      })
+    }
+    // Weak tier in early training, recently active = warning
+    else if (recentlyActive && rank !== null && rank <= 2 && ['week_1_training', 'pending_week_1'].includes(c.current_stage)) {
+      alerts.push({
+        id: `weak_early:${c.id}`,
+        severity: 'warning',
+        type: 'weak_in_early_training',
+        title: `${c.name} · Tier ${rank} in ${stageLabel}`,
+        meta: `${c.region}${mgr} — watch this week`,
+        region: c.region, candidateId: c.id, candidateName: c.name,
+      })
+    }
+
+    // Idle in early stage
+    const earlyStages: CanonicalStage[] = ['typeform', 'passed_typeform', 'pending_interview', 'scheduled_interview', 'pending_onboarding']
+    if (earlyStages.includes(c.current_stage) && daysIdle >= 10) {
+      const sev: Alert['severity'] = daysIdle >= 21 ? 'critical' : 'warning'
+      alerts.push({
+        id: `idle:${c.id}`,
+        severity: sev,
+        type: daysIdle >= 21 ? 'long_idle' : 'idle_early_stage',
+        title: `${c.name} · idle ${daysIdle} days in ${stageLabel}`,
+        meta: `${c.region}${mgr} — chase, schedule, or close`,
+        region: c.region, candidateId: c.id, candidateName: c.name,
+      })
+    }
+
+    // New Tier 4 in last 24h = info spotlight
+    if (rank === 4 && created >= since24h) {
+      alerts.push({
+        id: `new_top:${c.id}`,
+        severity: 'info',
+        type: 'new_top_tier',
+        title: `${c.name} just arrived as Tier 4`,
+        meta: `${c.region}${mgr} — fast-track candidate`,
+        region: c.region, candidateId: c.id, candidateName: c.name,
+      })
+    }
+  }
+
+  // Region-level bottleneck detection (pending_interview > 6 per region = warning)
+  for (const region of ['PH', 'EU', 'SA', 'UK'] as Region[]) {
+    const pending = bucketCounts[region].pending
+    if (pending >= 6) {
+      alerts.push({
+        id: `bottleneck_pending:${region}`,
+        severity: pending >= 12 ? 'critical' : 'warning',
+        type: 'stage_bottleneck',
+        title: `${region}: ${pending} candidates pending interview`,
+        meta: 'Bottleneck — schedule or pass',
+        region,
+      })
+    }
+  }
+
+  const severityOrder = { critical: 0, warning: 1, info: 2 }
+  alerts.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
+
+  return alerts.slice(0, 80)
+}
+
 export type StaleCandidate = {
   id: string
   name: string

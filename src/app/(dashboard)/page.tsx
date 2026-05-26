@@ -3,7 +3,7 @@ import CandidateLink from '@/components/CandidateLink'
 import Reminders from '@/components/Reminders'
 import { getRegionPhase, phaseBg, phaseColor, phaseLabel } from '@/lib/rotation'
 import { tierDisplay, TOP_PERFORMER_TIERS, type Region } from '@/lib/candidates'
-import { getDashboardStats, getLastSyncedAt } from '@/lib/db'
+import { getCurrentAlerts, getDashboardStats, getLastSyncedAt, type Alert } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
@@ -32,17 +32,6 @@ async function fetchTopPerformers(): Promise<CandidateSummary[]> {
   return (data ?? []) as CandidateSummary[]
 }
 
-async function fetchRecentActivity(): Promise<CandidateSummary[]> {
-  const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('candidates')
-    .select('id, name, tier, region, current_group_title, current_stage, assigned_manager, monday_updated_at')
-    .neq('current_stage', 'offboarded')
-    .order('monday_updated_at', { ascending: false, nullsFirst: false })
-    .limit(10)
-  return (data ?? []) as CandidateSummary[]
-}
-
 async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number; weak: number }>> {
   const supabase = createAdminClient()
   const { data } = await supabase
@@ -66,37 +55,28 @@ async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number;
   return result
 }
 
-function timeAgo(iso: string | null): string {
-  if (!iso) return ''
-  const ms = Date.now() - new Date(iso).getTime()
-  const mins = Math.round(ms / 60_000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.round(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.round(hrs / 24)
-  if (days < 7) return `${days}d ago`
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 export default async function DashboardPage() {
   let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null
   let lastSyncedAt: string | null = null
   let topPerformers: CandidateSummary[] = []
-  let recentActivity: CandidateSummary[] = []
+  let alerts: Alert[] = []
   let regionTiers: Awaited<ReturnType<typeof fetchRegionTierCounts>> | null = null
   let dataError: string | null = null
   try {
-    ;[stats, lastSyncedAt, topPerformers, recentActivity, regionTiers] = await Promise.all([
+    ;[stats, lastSyncedAt, topPerformers, alerts, regionTiers] = await Promise.all([
       getDashboardStats(),
       getLastSyncedAt(),
       fetchTopPerformers(),
-      fetchRecentActivity(),
+      getCurrentAlerts(),
       fetchRegionTierCounts(),
     ])
   } catch (err) {
     dataError = err instanceof Error ? err.message : String(err)
   }
+
+  const critical = alerts.filter(a => a.severity === 'critical')
+  const warning = alerts.filter(a => a.severity === 'warning')
+  const info = alerts.filter(a => a.severity === 'info')
 
   const phShare = stats ? (() => {
     const regionTotals = ['PH', 'EU', 'SA', 'UK'].map(r => {
@@ -217,52 +197,24 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {/* Two column: recent activity + side panels */}
+      {/* Two column: action feed + side panels */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 14 }}>
-        {/* Recent activity */}
+        {/* Action feed — rule-derived alerts */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Recent activity</div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-4)' }}>most recently updated in Monday</div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500 }}>Today · What needs you</div>
+            <div style={{ fontSize: 12, color: 'var(--text-3)', fontFamily: 'monospace' }}>{alerts.length} {alerts.length === 1 ? 'item' : 'items'}</div>
           </div>
-          {recentActivity.length === 0 ? (
-            <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic', padding: '10px 0' }}>No activity to show yet.</div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {recentActivity.map(c => {
-                const tier = tierDisplay(c.tier)
-                const stage = c.current_group_title ?? c.current_stage.replace(/_/g, ' ')
-                return (
-                  <CandidateLink key={c.id} id={c.id} block>
-                    <div style={{
-                      background: 'var(--surface-2)', border: '1px solid var(--border)',
-                      borderRadius: 10, padding: '12px 16px',
-                      display: 'flex', alignItems: 'center', gap: 14, cursor: 'pointer',
-                    }}>
-                      {tier ? (
-                        <div style={{
-                          width: 36, height: 24, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontWeight: 700, fontSize: 10, fontFamily: 'monospace', flexShrink: 0,
-                          background: tier.bg, color: tier.color,
-                        }}>{tier.label}</div>
-                      ) : (
-                        <div style={{ width: 36, height: 24, borderRadius: 5, background: 'var(--surface-3)', flexShrink: 0 }} />
-                      )}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
-                        <div style={{ fontSize: 11.5, color: 'var(--text-3)', display: 'flex', alignItems: 'center', gap: 6, overflow: 'hidden' }}>
-                          <span style={{ padding: '1px 5px', borderRadius: 3, background: 'var(--surface-3)', fontSize: 10 }}>{c.region}</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {stage}{c.assigned_manager ? ` · ${c.assigned_manager}` : ''}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', flexShrink: 0 }}>{timeAgo(c.monday_updated_at)}</div>
-                    </div>
-                  </CandidateLink>
-                )
-              })}
+          {alerts.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic', padding: '10px 0' }}>
+              Nothing flagged. No weak candidates in advanced training, no long-idle items, no bottlenecks.
             </div>
+          ) : (
+            <>
+              {critical.length > 0 && <AlertGroup label="Critical" accent="var(--red)" alerts={critical} />}
+              {warning.length > 0 && <AlertGroup label="Warning" accent="var(--amber)" alerts={warning} />}
+              {info.length > 0 && <AlertGroup label="Spotlight" accent="var(--yellow)" alerts={info} />}
+            </>
           )}
         </div>
 
@@ -338,5 +290,52 @@ export default async function DashboardPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+const ALERT_VISIBLE_PER_GROUP = 8
+
+function AlertGroup({ label, accent, badgeBg, alerts }: { label: string; accent: string; badgeBg?: string; alerts: Alert[] }) {
+  const bg = badgeBg ?? (accent === 'var(--red)' ? 'rgba(239,68,68,0.10)' : accent === 'var(--amber)' ? 'rgba(251,191,36,0.10)' : 'rgba(253,224,71,0.10)')
+  const visible = alerts.slice(0, ALERT_VISIBLE_PER_GROUP)
+  const overflow = alerts.length - visible.length
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 10px' }}>
+        <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-4)', fontWeight: 500 }}>{label}</div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'monospace' }}>{alerts.length} {alerts.length === 1 ? 'item' : 'items'}</div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+        {visible.map(a => {
+          const inner = (
+            <div style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '14px 16px',
+              display: 'flex', gap: 14, alignItems: 'flex-start',
+              borderLeft: `2px solid ${accent}`,
+              cursor: a.candidateId ? 'pointer' : 'default',
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3, lineHeight: 1.4 }}>{a.title}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{a.meta}</div>
+              </div>
+              <span style={{
+                fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 500,
+                padding: '3px 8px', borderRadius: 5, whiteSpace: 'nowrap',
+                background: bg, color: accent,
+              }}>{label}</span>
+            </div>
+          )
+          return a.candidateId
+            ? <CandidateLink key={a.id} id={a.candidateId} block>{inner}</CandidateLink>
+            : <div key={a.id}>{inner}</div>
+        })}
+        {overflow > 0 && (
+          <div style={{ fontSize: 11.5, color: 'var(--text-4)', textAlign: 'center', padding: '6px 0', fontStyle: 'italic' }}>
+            +{overflow} more {label.toLowerCase()} {overflow === 1 ? 'item' : 'items'}
+          </div>
+        )}
+      </div>
+    </>
   )
 }
