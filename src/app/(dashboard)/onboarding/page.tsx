@@ -78,8 +78,8 @@ export default async function OnboardingPage() {
   const countable = models.filter(m => m.teamsNeeded > 0)
   const unpaired = models.filter(m => m.teamsNeeded === 0 && (m.revenue ?? 0) > 0)
 
-  // Sort: countable models first (by start date asc), then unpaired
-  countable.sort((a, b) => {
+  // Sort all upcoming pages by start date (soonest first), nulls last
+  models.sort((a, b) => {
     if (a.daysUntilStart === null && b.daysUntilStart === null) return 0
     if (a.daysUntilStart === null) return 1
     if (b.daysUntilStart === null) return -1
@@ -130,8 +130,12 @@ export default async function OnboardingPage() {
       <div style={{
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24,
       }}>
-        <StatCard label="Pages onboarding" value={fmt(countable.length)} sub={unpaired.length > 0 ? `+${unpaired.length} sub-$40k (paired)` : undefined} />
-        <StatCard label="Chatters needed" value={fmt(totalChattersNeeded)} sub={`${Math.ceil(totalChattersNeeded / 4)} teams`} />
+        <StatCard
+          label="Pages to onboard"
+          value={fmt(models.length)}
+          sub={unpaired.length > 0 ? `${countable.length} need own team · ${unpaired.length} paired` : `${countable.length} need own team`}
+        />
+        <StatCard label="Chatters needed" value={fmt(totalChattersNeeded)} sub={`${Math.ceil(totalChattersNeeded / 4)} teams · $40k+ pages only`} />
         <StatCard label="Available standby" value={fmt(availableStandby)} sub="no board assigned" />
         {coverage === 'covered' ? (
           <StatCard label="Coverage" value={`+${fmt(surplus)}`} color="var(--green)" sub="surplus" />
@@ -151,35 +155,21 @@ export default async function OnboardingPage() {
         </div>
       )}
 
-      {/* Upcoming models — primary list */}
-      <Panel title={`Upcoming · ${countable.length} ${countable.length === 1 ? 'page' : 'pages'} (≥ $40k)`} style={{ marginBottom: 14 }}>
-        {countable.length === 0 ? (
+      {/* All upcoming models — single list */}
+      <Panel title={`Upcoming · ${models.length} ${models.length === 1 ? 'page' : 'pages'}`} style={{ marginBottom: 14 }}>
+        {models.length === 0 ? (
           <div style={{ padding: '24px 4px', fontSize: 12.5, color: 'var(--text-4)', fontStyle: 'italic' }}>
-            No upcoming pages of $40k or above. (Check the Monday board.)
+            No upcoming pages with a start date today or later. (Check the Monday board.)
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <HeaderRow />
-            {countable.map((m, i) => (
-              <ModelRow key={m.id} model={m} isLast={i === countable.length - 1} />
+            {models.map((m, i) => (
+              <ModelRow key={m.id} model={m} isLast={i === models.length - 1} />
             ))}
           </div>
         )}
       </Panel>
-
-      {/* Sub-$40k — informational */}
-      {unpaired.length > 0 && (
-        <Panel title={`Sub-$40k · ${unpaired.length} ${unpaired.length === 1 ? 'page' : 'pages'} · paired with others`} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
-            These pages don&apos;t each get their own team — they share coverage with other pages. Not counted in the chatters-needed total above.
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {unpaired.map((m, i) => (
-              <ModelRow key={m.id} model={m} isLast={i === unpaired.length - 1} muted />
-            ))}
-          </div>
-        </Panel>
-      )}
     </div>
   )
 }
@@ -203,8 +193,9 @@ function HeaderRow() {
   )
 }
 
-function ModelRow({ model, isLast, muted }: { model: ModelWithCapacity; isLast: boolean; muted?: boolean }) {
+function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean }) {
   const dayChip = dayChipColor(model.daysUntilStart)
+  const paired = model.teamsNeeded === 0 && (model.revenue ?? 0) > 0
   return (
     <div style={{
       display: 'grid',
@@ -212,7 +203,6 @@ function ModelRow({ model, isLast, muted }: { model: ModelWithCapacity; isLast: 
       alignItems: 'center', gap: 14,
       padding: '14px 4px',
       borderBottom: isLast ? 'none' : '1px solid var(--border)',
-      opacity: muted ? 0.7 : 1,
     }}>
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</div>
@@ -229,8 +219,21 @@ function ModelRow({ model, isLast, muted }: { model: ModelWithCapacity; isLast: 
       </div>
       <div style={{ fontFamily: 'monospace', fontSize: 13, color: 'var(--text)' }}>{revenueLabel(model.revenue)}</div>
       <div style={{ fontSize: 11.5, color: 'var(--text-2)', fontFamily: 'monospace' }}>{model.board || <span style={{ color: 'var(--text-4)', fontStyle: 'italic' }}>—</span>}</div>
-      <div style={{ fontFamily: 'monospace', fontSize: 13, color: model.teamsNeeded > 0 ? 'var(--text)' : 'var(--text-4)' }}>{model.teamsNeeded || '—'}</div>
-      <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: model.chattersNeeded > 0 ? 'var(--blue)' : 'var(--text-4)', textAlign: 'right' }}>{model.chattersNeeded || '—'}</div>
+      {paired ? (
+        <div style={{ gridColumn: 'span 2', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <span style={{
+            fontSize: 10.5, padding: '3px 9px', borderRadius: 4,
+            background: 'var(--surface-3)', color: 'var(--text-3)',
+            fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em',
+            whiteSpace: 'nowrap',
+          }}>Paired · sub-$40k</span>
+        </div>
+      ) : (
+        <>
+          <div style={{ fontFamily: 'monospace', fontSize: 13, color: model.teamsNeeded > 0 ? 'var(--text)' : 'var(--text-4)' }}>{model.teamsNeeded || '—'}</div>
+          <div style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 600, color: model.chattersNeeded > 0 ? 'var(--blue)' : 'var(--text-4)', textAlign: 'right' }}>{model.chattersNeeded || '—'}</div>
+        </>
+      )}
     </div>
   )
 }
