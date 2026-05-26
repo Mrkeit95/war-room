@@ -22,6 +22,7 @@ type Filters = {
   manager?: string
   region?: string
   bucket?: string
+  status?: 'pipeline' | 'offboarded' | 'all'
 }
 
 async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyncedAt: string | null; totalCount: number } | { error: string }> {
@@ -30,7 +31,10 @@ async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyn
     let q = supabase
       .from('candidates')
       .select('id, name, region, current_stage, current_group_title, tier, assigned_manager, monday_updated_at, last_synced_at', { count: 'exact' })
-      .neq('current_stage', 'offboarded')
+
+    if (filters.status === 'offboarded') q = q.eq('current_stage', 'offboarded')
+    else if (filters.status === 'all') { /* no filter */ }
+    else q = q.neq('current_stage', 'offboarded')
 
     if (filters.manager) q = q.eq('assigned_manager', filters.manager)
     if (filters.region) q = q.eq('region', filters.region)
@@ -72,12 +76,15 @@ function tierBadge(tier: string | null) {
   )
 }
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string }> }) {
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ manager?: string; region?: string; bucket?: string; status?: string }> }) {
   const params = await searchParams
+  const statusRaw = params.status?.toLowerCase()
+  const status: Filters['status'] = statusRaw === 'offboarded' || statusRaw === 'all' ? statusRaw : undefined
   const filters: Filters = {
     manager: params.manager?.trim() || undefined,
     region: params.region?.toUpperCase() || undefined,
     bucket: params.bucket?.toLowerCase() || undefined,
+    status,
   }
   const result = await fetchCandidates(filters)
   const activeFilters = Object.entries(filters).filter(([, v]) => !!v) as [keyof Filters, string][]
@@ -112,11 +119,18 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
             {' · synced from Monday'}
           </div>
         </div>
-        {lastSyncedAt && (
-          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>
-            Last synced {new Date(lastSyncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+          {lastSyncedAt && (
+            <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>
+              Last synced {new Date(lastSyncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 4 }}>
+            <ViewToggle label="In pipeline" href={buildHref(params, { status: undefined })} active={!status} />
+            <ViewToggle label="Offboarded" href={buildHref(params, { status: 'offboarded' })} active={status === 'offboarded'} />
+            <ViewToggle label="All" href={buildHref(params, { status: 'all' })} active={status === 'all'} />
           </div>
-        )}
+        </div>
       </div>
 
       {activeFilters.length > 0 && (
@@ -188,4 +202,26 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
       )}
     </div>
   )
+}
+
+function ViewToggle({ label, href, active }: { label: string; href: string; active: boolean }) {
+  return (
+    <Link href={href} style={{
+      fontSize: 11, padding: '4px 10px', borderRadius: 5, textDecoration: 'none', fontWeight: 500,
+      background: active ? 'var(--surface-2)' : 'transparent',
+      color: active ? 'var(--text)' : 'var(--text-3)',
+      border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
+    }}>{label}</Link>
+  )
+}
+
+function buildHref(current: { manager?: string; region?: string; bucket?: string; status?: string }, override: { status?: string | undefined }): string {
+  const params = new URLSearchParams()
+  if (current.manager) params.set('manager', current.manager)
+  if (current.region) params.set('region', current.region)
+  if (current.bucket) params.set('bucket', current.bucket)
+  const status = 'status' in override ? override.status : current.status
+  if (status) params.set('status', status)
+  const qs = params.toString()
+  return qs ? `/candidates?${qs}` : '/candidates'
 }

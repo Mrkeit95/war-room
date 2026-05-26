@@ -34,23 +34,30 @@ async function fetchTopPerformers(): Promise<CandidateSummary[]> {
 
 async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number; weak: number }>> {
   const supabase = createAdminClient()
-  const { data } = await supabase
-    .from('candidates')
-    .select('region, tier')
-    .neq('current_stage', 'offboarded')
-    .limit(10000)
+  const PAGE = 1000
   const result: Record<Region, { strong: number; weak: number }> = {
     PH: { strong: 0, weak: 0 },
     EU: { strong: 0, weak: 0 },
     SA: { strong: 0, weak: 0 },
     UK: { strong: 0, weak: 0 },
   }
-  // Tier 3/4 = strong, Tier 1/2 + EU 1 = weak (see memory/project_tier_scale.md)
-  for (const row of (data ?? []) as { region: Region; tier: string | null }[]) {
-    const t = row.tier?.toUpperCase()
-    if (!t) continue
-    if (t === 'TIER 3' || t === 'TIER 4' || t === 'A' || t === 'B') result[row.region].strong += 1
-    else if (t === 'TIER 1' || t === 'TIER 2' || t === 'EU 1' || t === 'D' || t === 'F') result[row.region].weak += 1
+  // Paginate — PostgREST caps responses at 1000 rows.
+  let from = 0
+  while (true) {
+    const { data } = await supabase
+      .from('candidates')
+      .select('region, tier')
+      .neq('current_stage', 'offboarded')
+      .range(from, from + PAGE - 1)
+    if (!data || data.length === 0) break
+    for (const row of data as { region: Region; tier: string | null }[]) {
+      const t = row.tier?.toUpperCase()
+      if (!t) continue
+      if (t === 'TIER 3' || t === 'TIER 4' || t === 'A' || t === 'B') result[row.region].strong += 1
+      else if (t === 'TIER 1' || t === 'TIER 2' || t === 'EU 1' || t === 'D' || t === 'F') result[row.region].weak += 1
+    }
+    if (data.length < PAGE) break
+    from += PAGE
   }
   return result
 }
@@ -146,6 +153,7 @@ export default async function DashboardPage() {
           const trainingCount = buckets?.training ?? 0
           const strong = regionTiers?.[dept.region].strong ?? 0
           const weak = regionTiers?.[dept.region].weak ?? 0
+          const offboarded = stats?.offboardedByRegion[dept.region] ?? 0
 
           // Region's share of all in-pipeline (for the progress bar)
           const allInPipeline = stats?.inPipeline ?? 0
@@ -171,7 +179,7 @@ export default async function DashboardPage() {
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 14 }}>{dept.manager}</div>
             <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, marginBottom: 4 }}>{inPipeline.toLocaleString()}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>in pipeline · {sharePct}% of total</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 14 }}>in pipeline · {sharePct}% of total · {offboarded.toLocaleString()} offboarded</div>
             <div style={{ height: 4, background: 'var(--surface-3)', borderRadius: 2, overflow: 'hidden', marginBottom: 16 }}>
               <div style={{ height: '100%', borderRadius: 2, background: dept.color, width: `${sharePct}%` }} />
             </div>

@@ -7,6 +7,25 @@ import { createAdminClient } from './supabase/admin'
 import { uiBucket, type CanonicalStage, type UiBucket } from './stages'
 import { tierRank, type Region } from './candidates'
 
+// Supabase PostgREST caps row responses at 1000 by default — paginate to get the full set.
+const PAGE_SIZE = 1000
+
+type PageResult<T> = { data: T[] | null; error: { message: string } | null }
+
+async function fetchAllPaged<T>(query: (from: number, to: number) => PromiseLike<PageResult<T>>): Promise<T[]> {
+  const all: T[] = []
+  let from = 0
+  while (true) {
+    const { data, error } = await query(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    if (!data || data.length === 0) break
+    all.push(...data)
+    if (data.length < PAGE_SIZE) break
+    from += PAGE_SIZE
+  }
+  return all
+}
+
 export type DbCandidate = {
   id: string
   monday_item_id: string
@@ -50,41 +69,52 @@ export function stagesForBucket(bucket: UiBucket): CanonicalStage[] {
 
 /**
  * Returns an aggregate snapshot keyed by region and ui bucket, plus totals.
+ * Includes offboarded counts as a separate dimension so the UI can surface them.
  * One query, one round-trip.
  */
 export async function getDashboardStats() {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('candidates')
-    .select('region, current_stage')
-    .neq('current_stage', 'offboarded')
-    .limit(10000)
-  if (error) throw new Error(`getDashboardStats: ${error.message}`)
+  const data = await fetchAllPaged<{ region: Region; current_stage: CanonicalStage }>((from, to) =>
+    supabase.from('candidates').select('region, current_stage').range(from, to)
+  )
 
   const byRegion: Record<Region, Record<Exclude<UiBucket, null>, number>> = {
     PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(), UK: emptyBucket(),
   }
-  let total = 0
-  for (const row of (data ?? []) as { region: Region; current_stage: CanonicalStage }[]) {
+  const offboardedByRegion: Record<Region, number> = { PH: 0, EU: 0, SA: 0, UK: 0 }
+  let inPipeline = 0
+  let totalAll = 0
+
+  for (const row of data) {
+    totalAll += 1
+    if (row.current_stage === 'offboarded') {
+      offboardedByRegion[row.region] += 1
+      continue
+    }
     const bucket = uiBucket(row.current_stage)
     if (!bucket) continue
     byRegion[row.region][bucket] += 1
-    total += 1
+    inPipeline += 1
   }
 
   const sumBucket = (b: Exclude<UiBucket, null>) =>
     byRegion.PH[b] + byRegion.EU[b] + byRegion.SA[b] + byRegion.UK[b]
 
+  const offboardedTotal = offboardedByRegion.PH + offboardedByRegion.EU + offboardedByRegion.SA + offboardedByRegion.UK
+
   return {
-    total,
-    inPipeline: total,
+    total: inPipeline,
+    inPipeline,
     interviews: sumBucket('pending') + sumBucket('scheduled'),
     inTraining: sumBucket('training'),
     activeHires: sumBucket('active'),
     typeforms: sumBucket('typeform'),
     passed: sumBucket('passed'),
     standby: sumBucket('standby'),
+    offboardedTotal,
+    totalAll,
     byRegion,
+    offboardedByRegion,
   }
 }
 
@@ -155,12 +185,13 @@ export type GroupSummary = {
 
 export async function getRegionStats(region: Region) {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('candidates')
-    .select('current_stage, current_group_title, tier, assigned_manager')
-    .eq('region', region)
-    .limit(10000)
-  if (error) throw new Error(`getRegionStats: ${error.message}`)
+  type Row = { current_stage: CanonicalStage; current_group_title: string | null; tier: string | null; assigned_manager: string | null }
+  const data = await fetchAllPaged<Row>((from, to) =>
+    supabase.from('candidates')
+      .select('current_stage, current_group_title, tier, assigned_manager')
+      .eq('region', region)
+      .range(from, to)
+  )
 
   const byStage: Partial<Record<CanonicalStage, number>> = {}
   const byBucket: Record<Exclude<UiBucket, null>, number> = emptyBucket()
@@ -170,9 +201,7 @@ export async function getRegionStats(region: Region) {
   let inPipeline = 0
   let total = 0
 
-  type Row = { current_stage: CanonicalStage; current_group_title: string | null; tier: string | null; assigned_manager: string | null }
-
-  for (const row of (data ?? []) as Row[]) {
+  for (const row of data) {
     total += 1
     byStage[row.current_stage] = (byStage[row.current_stage] ?? 0) + 1
     const bucket = uiBucket(row.current_stage)
@@ -242,12 +271,13 @@ export async function getBriefingData(): Promise<BriefingData> {
   const supabase = createAdminClient()
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
-  const { data, error } = await supabase
-    .from('candidates')
-    .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_created_at')
-    .neq('current_stage', 'offboarded')
-    .limit(10000)
-  if (error) throw new Error(`getBriefingData: ${error.message}`)
+  type Row = BriefingCandidate & { monday_created_at: string | null }
+  const data = await fetchAllPaged<Row>((from, to) =>
+    supabase.from('candidates')
+      .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_created_at')
+      .neq('current_stage', 'offboarded')
+      .range(from, to)
+  )
 
   let newLast24h = 0
   let interviews = 0
@@ -256,7 +286,7 @@ export async function getBriefingData(): Promise<BriefingData> {
   const atRiskInTraining: BriefingCandidate[] = []
   const topTier: BriefingCandidate[] = []
 
-  for (const row of (data ?? []) as (BriefingCandidate & { monday_created_at: string | null })[]) {
+  for (const row of data) {
     if (row.monday_created_at && row.monday_created_at >= since24h) newLast24h += 1
 
     const bucket = uiBucket(row.current_stage)
@@ -317,12 +347,13 @@ export type Alert = {
  */
 export async function getCurrentAlerts(): Promise<Alert[]> {
   const supabase = createAdminClient()
-  const { data, error } = await supabase
-    .from('candidates')
-    .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_updated_at, monday_created_at')
-    .neq('current_stage', 'offboarded')
-    .limit(10000)
-  if (error) throw new Error(`getCurrentAlerts: ${error.message}`)
+  type Row = { id: string; name: string; region: Region; tier: string | null; current_stage: CanonicalStage; current_group_title: string | null; assigned_manager: string | null; monday_updated_at: string | null; monday_created_at: string | null }
+  const data = await fetchAllPaged<Row>((from, to) =>
+    supabase.from('candidates')
+      .select('id, name, region, tier, current_stage, current_group_title, assigned_manager, monday_updated_at, monday_created_at')
+      .neq('current_stage', 'offboarded')
+      .range(from, to)
+  )
 
   const now = Date.now()
   const since24h = now - 24 * 60 * 60 * 1000
@@ -334,9 +365,7 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
     PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(), UK: emptyBucket(),
   }
 
-  type Row = { id: string; name: string; region: Region; tier: string | null; current_stage: CanonicalStage; current_group_title: string | null; assigned_manager: string | null; monday_updated_at: string | null; monday_created_at: string | null }
-
-  for (const c of (data ?? []) as Row[]) {
+  for (const c of data) {
     const bucket = uiBucket(c.current_stage)
     if (bucket) bucketCounts[c.region][bucket] += 1
 

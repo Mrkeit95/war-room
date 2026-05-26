@@ -83,10 +83,17 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
       )}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
-        <KpiCard label="In pipeline" value={fmt(stats?.inPipeline ?? 0)} meta={stats ? `${stats.total.toLocaleString()} total on board` : '—'} segment={`${regionCode}:all`} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14, marginBottom: 14 }}>
+        <KpiCard label="In pipeline" value={fmt(stats?.inPipeline ?? 0)} meta={stats ? `${stats.total.toLocaleString()} total · ${(stats.total - stats.inPipeline).toLocaleString()} offboarded` : '—'} segment={`${regionCode}:all`} />
         <KpiCard label="In training" value={fmt(bucket('training'))} meta="all weeks + TB" segment={`${regionCode}:training`} />
         <KpiCard label="Active hires" value={fmt(bucket('active'))} meta="active + promoted + PTO" segment={`${regionCode}:active`} />
+        <KpiCard
+          label="Offboarded"
+          value={fmt(stats ? stats.total - stats.inPipeline : 0)}
+          meta="lifetime · click to view"
+          color="var(--text-3)"
+          href={`/candidates?region=${region}&status=offboarded`}
+        />
         <KpiCard label="Managers" value={fmt(stats?.byManager.length ?? 0)} meta="people in this sector" />
       </div>
 
@@ -308,19 +315,22 @@ function ManagerRow({ manager, isLast }: { manager: ManagerSummary; isLast: bool
     : content
 }
 
-function KpiCard({ label, value, meta, color, segment }: { label: string; value: string; meta: string; color?: string; segment?: string }) {
+function KpiCard({ label, value, meta, color, segment, href }: { label: string; value: string; meta: string; color?: string; segment?: string; href?: string }) {
+  const clickable = !!(segment || href)
   const card = (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 14, padding: '22px 24px',
-      cursor: segment ? 'pointer' : 'default', height: '100%',
+      cursor: clickable ? 'pointer' : 'default', height: '100%',
     }}>
       <div style={{ fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--text-3)', fontWeight: 500, marginBottom: 14 }}>{label}</div>
       <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.025em', lineHeight: 1, color: color || 'var(--text)' }}>{value}</div>
       <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 6 }}>{meta}</div>
     </div>
   )
-  return segment ? <SegmentLink segment={segment} block>{card}</SegmentLink> : card
+  if (segment) return <SegmentLink segment={segment} block>{card}</SegmentLink>
+  if (href) return <Link href={href} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{card}</Link>
+  return card
 }
 
 function PipelineTile({ num, label, segment }: { num: number; label: string; segment: string }) {
