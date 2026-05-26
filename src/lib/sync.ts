@@ -6,8 +6,10 @@
 import { createAdminClient } from './supabase/admin'
 import {
   fetchAllBoards,
+  fetchBoardLayouts,
   fetchModelBoard,
   fetchPageAssignmentBoard,
+  type ParsedBoardGroup,
   type ParsedItem,
   type ParsedModel,
   type ParsedPageAssignment,
@@ -19,6 +21,7 @@ export type SyncResult = {
   candidatesSynced: number
   modelsSynced: number
   pageAssignmentsSynced: number
+  boardGroupsSynced: number
   transitionsRecorded: number
   durationMs: number
   fetchMs: number
@@ -42,10 +45,16 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
 
   try {
     const tFetch = Date.now()
-    const [boards, modelBoard, assignmentBoard] = await Promise.all([
+    const [boards, modelBoard, assignmentBoard, boardLayouts] = await Promise.all([
       fetchAllBoards(),
       fetchModelBoard(),
       fetchPageAssignmentBoard(),
+      // Layout sync is best-effort — if the chat-stars workspace token
+      // can't reach those boards we still want the rest of the sync to land.
+      fetchBoardLayouts().catch(err => {
+        warnings.push(`Board layouts fetch failed: ${err instanceof Error ? err.message : String(err)}`)
+        return [] as ParsedBoardGroup[]
+      }),
     ])
     const fetchMs = Date.now() - tFetch
 
@@ -167,6 +176,20 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       pageAssignmentsSynced = rows.length
     }
 
+    // Per-AE board layouts → authoritative pod/team → board mapping.
+    let boardGroupsSynced = 0
+    if (boardLayouts.length > 0) {
+      const rows = boardLayouts.map(g => buildBoardGroupUpsertRow(g))
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK)
+        const { error: bgErr } = await supabase
+          .from('board_groups')
+          .upsert(slice, { onConflict: 'monday_board_id,monday_group_id' })
+        if (bgErr) throw new Error(`Board group upsert failed at offset ${i}: ${bgErr.message}`)
+      }
+      boardGroupsSynced = rows.length
+    }
+
     const finishedAt = new Date()
     await supabase
       .from('sync_runs')
@@ -183,6 +206,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       candidatesSynced: rowsToUpsert.length,
       modelsSynced,
       pageAssignmentsSynced,
+      boardGroupsSynced,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       fetchMs,
@@ -200,6 +224,18 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       })
       .eq('id', syncRunId)
     throw err
+  }
+}
+
+function buildBoardGroupUpsertRow(g: ParsedBoardGroup): Record<string, unknown> {
+  return {
+    monday_board_id: g.monday_board_id,
+    monday_group_id: g.monday_group_id,
+    board_name: g.boardName,
+    group_title: g.group_title,
+    pod: g.pod,
+    team: g.team,
+    last_synced_at: new Date().toISOString(),
   }
 }
 

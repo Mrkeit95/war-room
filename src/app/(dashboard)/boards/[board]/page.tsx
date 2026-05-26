@@ -94,47 +94,46 @@ function TeamRow({ team, chatterIdMap, isLast }: { team: TeamEntry; chatterIdMap
           background: 'var(--surface-3)', color: 'var(--text-2)',
           fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.06em',
         }}>{team.team}</span>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, flex: 1 }}>
-          {team.pages.map(p => (
-            <span key={p.pageName} style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>{p.pageName}</span>
-          )).reduce<React.ReactNode[]>((acc, el, i) => {
-            if (i > 0) acc.push(<span key={`sep-${i}`} style={{ color: 'var(--text-4)' }}>·</span>)
-            acc.push(el)
-            return acc
-          }, [])}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'baseline', flex: 1 }}>
+          {team.pageNames.length === 0 ? (
+            <span style={{ fontSize: 12.5, color: 'var(--text-4)', fontStyle: 'italic' }}>no pages</span>
+          ) : (
+            team.pageNames.map((p, i) => (
+              <span key={p} style={{ fontSize: 12.5, color: 'var(--text)', fontWeight: 500 }}>
+                {i > 0 && <span style={{ color: 'var(--text-4)', margin: '0 4px' }}>·</span>}
+                {p}
+              </span>
+            ))
+          )}
         </div>
       </div>
       <div style={{ paddingLeft: 36 }}>
-        {team.pages.map(p => (
-          <div key={p.pageName} style={{ marginBottom: 6 }}>
-            {p.chatters.length === 0 ? (
-              <span style={{ fontSize: 11.5, color: 'var(--text-4)', fontStyle: 'italic' }}>
-                No chatters on {p.pageName}
-              </span>
-            ) : (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                {p.chatters.map(c => {
-                  const candidateId = chatterIdMap.get(c.name)
-                  const chip = (
-                    <span style={{
-                      fontSize: 11.5, padding: '3px 9px', borderRadius: 4,
-                      background: 'var(--surface-2)', border: '1px solid var(--border)',
-                      color: 'var(--text)',
-                      display: 'inline-flex', alignItems: 'center', gap: 6,
-                      cursor: candidateId ? 'pointer' : 'default',
-                    }}>
-                      <span style={{ fontWeight: 500 }}>{c.name}</span>
-                      <span style={{ color: 'var(--text-4)', fontSize: 10, fontFamily: 'monospace' }}>{c.shifts.length}×</span>
-                    </span>
-                  )
-                  return candidateId
-                    ? <CandidateLink key={c.name} id={candidateId} block={false}>{chip}</CandidateLink>
-                    : <span key={c.name}>{chip}</span>
-                })}
-              </div>
-            )}
+        {team.chatters.length === 0 ? (
+          <span style={{ fontSize: 11.5, color: 'var(--text-4)', fontStyle: 'italic' }}>
+            No chatters assigned to this team yet
+          </span>
+        ) : (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {team.chatters.map(c => {
+              const candidateId = chatterIdMap.get(c.name)
+              const chip = (
+                <span style={{
+                  fontSize: 11.5, padding: '3px 9px', borderRadius: 4,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  color: 'var(--text)',
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  cursor: candidateId ? 'pointer' : 'default',
+                }}>
+                  <span style={{ fontWeight: 500 }}>{c.name}</span>
+                  <span style={{ color: 'var(--text-4)', fontSize: 10, fontFamily: 'monospace' }}>{c.shifts.length}×</span>
+                </span>
+              )
+              return candidateId
+                ? <CandidateLink key={c.name} id={candidateId} block={false}>{chip}</CandidateLink>
+                : <span key={c.name}>{chip}</span>
+            })}
           </div>
-        ))}
+        )}
       </div>
     </div>
   )

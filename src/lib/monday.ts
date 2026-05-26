@@ -351,3 +351,72 @@ export async function fetchPageAssignmentBoard(): Promise<{ boardId: string; ite
   const items = await fetchAllItems(boardId)
   return { boardId, items: items.map(it => parsePageAssignmentItem(it, boardId)) }
 }
+
+/**
+ * Per-AE board layout. Each board's groups are named "POD A TEAM 1" — that's
+ * the authoritative pod/team → board mapping. IDs are fixed (chat-stars
+ * workspace) but can be overridden via env vars if anything moves.
+ */
+const BOARD_LAYOUT: { name: string; envVar: string; defaultId: string }[] = [
+  { name: 'BOARD 1', envVar: 'MONDAY_BOARD_ID_BOARD_1', defaultId: '8870944166' },
+  { name: 'BOARD 2', envVar: 'MONDAY_BOARD_ID_BOARD_2', defaultId: '8870885000' },
+  { name: 'BOARD 3', envVar: 'MONDAY_BOARD_ID_BOARD_3', defaultId: '8870544469' },
+  { name: 'TRAINING BOARD', envVar: 'MONDAY_BOARD_ID_TRAINING', defaultId: '8461825186' },
+]
+
+export type ParsedBoardGroup = {
+  boardName: string
+  monday_board_id: string
+  monday_group_id: string
+  group_title: string
+  pod: string | null
+  team: string | null
+}
+
+/**
+ * Parse "POD A TEAM 1" → pod="A", team="T1". Also accepts "POD A - T1"
+ * (chatter-schedule style) just in case the operational boards drift toward
+ * that format.
+ */
+export function parseBoardGroup(title: string | null): { pod: string | null; team: string | null } {
+  if (!title) return { pod: null, team: null }
+  const podMatch = title.match(/POD\s+([A-Z0-9]+)/i)
+  const teamMatch = title.match(/(?:TEAM\s+|\bT)(\d+)/i)
+  return {
+    pod: podMatch ? podMatch[1].toUpperCase() : null,
+    team: teamMatch ? `T${teamMatch[1]}` : null,
+  }
+}
+
+export async function fetchBoardLayouts(): Promise<ParsedBoardGroup[]> {
+  const boards = BOARD_LAYOUT.map(b => ({ name: b.name, id: process.env[b.envVar] || b.defaultId }))
+  // Single GraphQL call gets all 4 boards' groups
+  const query = `
+    query ($boardIds: [ID!]) {
+      boards(ids: $boardIds) {
+        id
+        groups { id title }
+      }
+    }
+  `
+  type Resp = { boards: { id: string; groups: { id: string; title: string }[] }[] }
+  const data = await mondayGraphQL<Resp>(query, { boardIds: boards.map(b => b.id) })
+
+  const out: ParsedBoardGroup[] = []
+  for (const b of data.boards) {
+    const layout = boards.find(x => x.id === b.id)
+    if (!layout) continue
+    for (const g of b.groups) {
+      const { pod, team } = parseBoardGroup(g.title)
+      out.push({
+        boardName: layout.name,
+        monday_board_id: b.id,
+        monday_group_id: g.id,
+        group_title: g.title,
+        pod,
+        team,
+      })
+    }
+  }
+  return out
+}
