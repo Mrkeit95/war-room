@@ -154,10 +154,12 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
           const buckets = stats?.byRegion[dept.region]
           // PH excludes cross-region buckets (standby/active hosted on PH board for all regions).
           // EU/SA/UK count all buckets — their boards aren't cross-region pollutants.
+          // Pipeline = still moving through. Active chatters are hired + working,
+          // not in pipeline. PH also excludes standby (cross-region pool lives on PH board).
           const inPipeline = buckets
             ? dept.region === 'PH'
               ? buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training
-              : buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby + buckets.active
+              : buckets.typeform + buckets.passed + buckets.pending + buckets.scheduled + buckets.training + buckets.standby
             : 0
           const typeformCount = buckets?.typeform ?? 0
           const interviewsCount = (buckets?.pending ?? 0) + (buckets?.scheduled ?? 0)

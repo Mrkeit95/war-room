@@ -94,7 +94,8 @@ export async function getDashboardStats() {
     const bucket = uiBucket(row.current_stage)
     if (!bucket) continue
     byRegion[row.region][bucket] += 1
-    inPipeline += 1
+    // Active chatters are hired + working — no longer in pipeline.
+    if (bucket !== 'active') inPipeline += 1
   }
 
   const sumBucket = (b: Exclude<UiBucket, null>) =>
@@ -207,7 +208,8 @@ export async function getRegionStats(region: Region) {
     const bucket = uiBucket(row.current_stage)
     if (bucket) {
       byBucket[bucket] += 1
-      inPipeline += 1
+      // Active chatters are hired + working — no longer in pipeline.
+      if (bucket !== 'active') inPipeline += 1
     }
     if (row.tier) {
       tierDist[row.tier] = (tierDist[row.tier] ?? 0) + 1
