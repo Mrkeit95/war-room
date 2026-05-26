@@ -542,6 +542,107 @@ export async function getStaleCandidates(region: Region, daysThreshold = 5, limi
   })
 }
 
+// ---------------------------------------------------------------------------
+// Department + movements signals for the morning briefing
+// ---------------------------------------------------------------------------
+
+export type DepartmentMovement = {
+  region: Region
+  inPipeline: number
+  newLast24h: number
+  transitions24h: number
+  enteredTraining24h: number
+  enteredStandby24h: number
+  enteredActive24h: number
+  offboarded24h: number
+}
+
+const REGIONS: Region[] = ['PH', 'EU', 'SA', 'UK']
+
+export async function getDepartmentMovements(): Promise<DepartmentMovement[]> {
+  const supabase = createAdminClient()
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+  // 1. Per-region pipeline size + new-in-24h counts.
+  type CandRow = { region: Region; current_stage: CanonicalStage; monday_created_at: string | null }
+  const candidates = await fetchAllPaged<CandRow>((from, to) =>
+    supabase.from('candidates')
+      .select('region, current_stage, monday_created_at')
+      .range(from, to),
+  )
+
+  const acc: Record<Region, DepartmentMovement> = {
+    PH: { region: 'PH', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
+    EU: { region: 'EU', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
+    SA: { region: 'SA', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
+    UK: { region: 'UK', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
+  }
+
+  for (const c of candidates) {
+    if (!REGIONS.includes(c.region)) continue
+    if (c.current_stage !== 'offboarded') acc[c.region].inPipeline += 1
+    if (c.monday_created_at && c.monday_created_at >= since24h) acc[c.region].newLast24h += 1
+  }
+
+  // 2. Stage transitions in last 24h, joined to candidates for region.
+  const { data: transitionsRaw, error: tErr } = await supabase
+    .from('stage_transitions')
+    .select('to_stage, candidates!inner(region)')
+    .gte('detected_at', since24h)
+  if (tErr) throw new Error(`getDepartmentMovements (transitions): ${tErr.message}`)
+
+  for (const row of (transitionsRaw ?? []) as { to_stage: CanonicalStage; candidates: { region: Region } | { region: Region }[] }[]) {
+    // PostgREST returns the join as an object for one-to-one (FK) — defensively unwrap if it's an array.
+    const cand = Array.isArray(row.candidates) ? row.candidates[0] : row.candidates
+    if (!cand || !REGIONS.includes(cand.region)) continue
+    acc[cand.region].transitions24h += 1
+    if (row.to_stage === 'offboarded') acc[cand.region].offboarded24h += 1
+    const b = uiBucket(row.to_stage)
+    if (b === 'training') acc[cand.region].enteredTraining24h += 1
+    else if (b === 'standby') acc[cand.region].enteredStandby24h += 1
+    else if (b === 'active') acc[cand.region].enteredActive24h += 1
+  }
+
+  return REGIONS.map(r => acc[r])
+}
+
+export type RecentMovement = {
+  id: string
+  candidateId: string
+  candidateName: string
+  region: Region
+  fromStage: CanonicalStage | null
+  toStage: CanonicalStage
+  detectedAt: string
+}
+
+export async function getRecentMovements(limit = 12): Promise<RecentMovement[]> {
+  const supabase = createAdminClient()
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const { data, error } = await supabase
+    .from('stage_transitions')
+    .select('id, from_stage, to_stage, detected_at, candidates!inner(id, name, region)')
+    .gte('detected_at', since24h)
+    .order('detected_at', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(`getRecentMovements: ${error.message}`)
+
+  return ((data ?? []) as { id: string; from_stage: CanonicalStage | null; to_stage: CanonicalStage; detected_at: string; candidates: { id: string; name: string; region: Region } | { id: string; name: string; region: Region }[] }[])
+    .map(r => {
+      const cand = Array.isArray(r.candidates) ? r.candidates[0] : r.candidates
+      return {
+        id: r.id,
+        candidateId: cand.id,
+        candidateName: cand.name,
+        region: cand.region,
+        fromStage: r.from_stage,
+        toStage: r.to_stage,
+        detectedAt: r.detected_at,
+      }
+    })
+    .filter(r => REGIONS.includes(r.region))
+}
+
 export async function getLastSyncedAt(): Promise<string | null> {
   const supabase = createAdminClient()
   const { data } = await supabase

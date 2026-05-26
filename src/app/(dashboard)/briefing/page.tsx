@@ -1,8 +1,12 @@
 import Link from 'next/link'
 import BriefingReminders from '@/components/BriefingReminders'
 import CandidateLink from '@/components/CandidateLink'
-import { getBriefingData, getCurrentAlerts, getLastSyncedAt, type Alert, type BriefingCandidate } from '@/lib/db'
-import { tierDisplay } from '@/lib/candidates'
+import {
+  getBriefingData, getCurrentAlerts, getLastSyncedAt,
+  getDepartmentMovements, getRecentMovements,
+  type Alert, type BriefingCandidate, type DepartmentMovement, type RecentMovement,
+} from '@/lib/db'
+import { tierDisplay, type Region } from '@/lib/candidates'
 import { getOnboardingSnapshot, type OnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
 
 export const dynamic = 'force-dynamic'
@@ -14,13 +18,17 @@ export default async function BriefingPage() {
   let lastSyncedAt: string | null = null
   let alerts: Alert[] = []
   let onboarding: OnboardingSnapshot | null = null
+  let departments: DepartmentMovement[] = []
+  let movements: RecentMovement[] = []
   let error: string | null = null
   try {
-    ;[data, lastSyncedAt, alerts, onboarding] = await Promise.all([
+    ;[data, lastSyncedAt, alerts, onboarding, departments, movements] = await Promise.all([
       getBriefingData(),
       getLastSyncedAt(),
       getCurrentAlerts(),
-      getOnboardingSnapshot().catch(() => null),   // onboarding is best-effort — don't block briefing
+      getOnboardingSnapshot().catch(() => null),
+      getDepartmentMovements().catch(() => []),
+      getRecentMovements(12).catch(() => []),
     ])
   } catch (err) {
     error = err instanceof Error ? err.message : String(err)
@@ -166,6 +174,29 @@ export default async function BriefingPage() {
             </div>
           </Section>
 
+          {/* Departments — per-region 24h activity */}
+          {departments.length > 0 && (
+            <Section title="Departments — last 24h">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {departments.map(d => (
+                  <DepartmentRow key={d.region} dept={d} />
+                ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Recent movements — what actually happened */}
+          {movements.length > 0 && (
+            <Section title="Recent movements">
+              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+                Last {movements.length} stage change{movements.length === 1 ? '' : 's'} across the org. <Link href="/activity" style={{ color: 'var(--text-3)' }}>Full log →</Link>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {movements.map(m => <MovementRow key={m.id} movement={m} />)}
+              </div>
+            </Section>
+          )}
+
           {/* Worth your attention */}
           <Section title="Worth your attention today">
             {data.atRiskInTraining.length === 0 ? (
@@ -293,6 +324,86 @@ function CandidateRow({ candidate, num, accent }: { candidate: BriefingCandidate
             {stage}{candidate.assigned_manager ? ` · ${candidate.assigned_manager}` : ''}
           </div>
         </div>
+      </div>
+    </CandidateLink>
+  )
+}
+
+const REGION_LABEL: Record<Region, { flag: string; name: string }> = {
+  PH: { flag: '🇵🇭', name: 'Philippines' },
+  EU: { flag: '🇪🇺', name: 'Europe' },
+  SA: { flag: '🇨🇴', name: 'South America' },
+  UK: { flag: '🇬🇧', name: 'United Kingdom' },
+}
+
+const DEPT_SLUG: Record<Region, string> = { PH: 'ph', EU: 'eu', SA: 'sa', UK: 'uk' }
+
+function DepartmentRow({ dept }: { dept: DepartmentMovement }) {
+  const label = REGION_LABEL[dept.region]
+  const hasActivity = dept.transitions24h > 0 || dept.newLast24h > 0
+  return (
+    <Link href={`/departments/${DEPT_SLUG[dept.region]}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '12px 16px',
+        display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', alignItems: 'center', gap: 14,
+        cursor: 'pointer',
+      }}>
+        <div style={{ fontSize: 18, lineHeight: 1, width: 22, textAlign: 'center' }}>{label.flag}</div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3 }}>
+            {label.name} <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--text-3)', fontWeight: 400, marginLeft: 4 }}>· {dept.inPipeline.toLocaleString()} in pipeline</span>
+          </div>
+          <div style={{ fontSize: 11.5, color: hasActivity ? 'var(--text-3)' : 'var(--text-4)', fontFamily: 'monospace', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {dept.newLast24h > 0 && <span><span style={{ color: 'var(--green)' }}>+{dept.newLast24h}</span> new</span>}
+            {dept.enteredTraining24h > 0 && <span><span style={{ color: 'var(--blue)' }}>↑{dept.enteredTraining24h}</span> to training</span>}
+            {dept.enteredStandby24h > 0 && <span><span style={{ color: 'var(--violet)' }}>→{dept.enteredStandby24h}</span> standby</span>}
+            {dept.enteredActive24h > 0 && <span><span style={{ color: 'var(--green)' }}>✓{dept.enteredActive24h}</span> active</span>}
+            {dept.offboarded24h > 0 && <span><span style={{ color: 'var(--red)' }}>−{dept.offboarded24h}</span> offboarded</span>}
+            {!hasActivity && <span style={{ fontStyle: 'italic' }}>no movement</span>}
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', textAlign: 'right' }}>
+          {dept.transitions24h > 0 ? `${dept.transitions24h} change${dept.transitions24h === 1 ? '' : 's'}` : ''}
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000) return 'just now'
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`
+  return `${Math.floor(ms / 86_400_000)}d ago`
+}
+
+function prettyStage(stage: string | null): string {
+  if (!stage) return 'new'
+  return stage.replace(/_/g, ' ')
+}
+
+function MovementRow({ movement }: { movement: RecentMovement }) {
+  const region = REGION_LABEL[movement.region]
+  return (
+    <CandidateLink id={movement.candidateId} block>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        padding: '10px 14px',
+        display: 'flex', alignItems: 'center', gap: 12,
+        cursor: 'pointer',
+      }}>
+        <div style={{ fontSize: 13, lineHeight: 1, width: 18, textAlign: 'center' }}>{region.flag}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{movement.candidateName}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span>{prettyStage(movement.fromStage)}</span>
+            <span style={{ color: 'var(--text-4)' }}>→</span>
+            <span style={{ color: 'var(--text-2)' }}>{prettyStage(movement.toStage)}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{timeAgo(movement.detectedAt)}</div>
       </div>
     </CandidateLink>
   )
