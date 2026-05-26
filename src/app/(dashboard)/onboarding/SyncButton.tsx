@@ -41,10 +41,18 @@ export default function SyncButton({ subtle }: { subtle?: boolean }) {
           fontSize: 11.5,
           color: result.ok ? 'var(--green)' : 'var(--red)',
           lineHeight: 1.4,
+          maxWidth: 360,
         }}>
-          {result.ok
-            ? `✓ Synced ${result.modelsSynced} model${result.modelsSynced === 1 ? '' : 's'} · ${result.candidatesSynced} chatters · ${(result.durationMs / 1000).toFixed(1)}s. Refresh to see updates.`
-            : `✗ ${result.error}`}
+          {result.ok ? (
+            <>
+              ✓ Synced {result.modelsSynced} models · {result.candidatesSynced} chatters · {result.pageAssignmentsSynced} shifts · {result.boardGroupsSynced} board-group mappings · {(result.durationMs / 1000).toFixed(1)}s. Refresh to see updates.
+              {result.warnings.length > 0 && (
+                <div style={{ marginTop: 6, color: 'var(--amber)', fontSize: 11, fontFamily: 'monospace' }}>
+                  {result.warnings.map((w, i) => <div key={i}>⚠ {w}</div>)}
+                </div>
+              )}
+            </>
+          ) : `✗ ${result.error}`}
         </div>
       )}
     </div>
