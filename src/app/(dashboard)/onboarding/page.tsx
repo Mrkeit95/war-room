@@ -1,7 +1,31 @@
 import Link from 'next/link'
 import { getOnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
+import { getLastSyncedAt } from '@/lib/db'
+import { createAdminClient } from '@/lib/supabase/admin'
+import SyncButton from './SyncButton'
 
 export const dynamic = 'force-dynamic'
+
+async function getModelDiagnostics() {
+  const supabase = createAdminClient()
+  const { count } = await supabase.from('models').select('id', { count: 'exact', head: true })
+  const lastSync = await getLastSyncedAt()
+  return {
+    envVarSet: !!process.env.MONDAY_BOARD_ID_MODELS,
+    boardId: process.env.MONDAY_BOARD_ID_MODELS ?? null,
+    modelsInDb: count ?? 0,
+    lastSyncedAt: lastSync,
+  }
+}
+
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never'
+  const ms = Date.now() - new Date(iso).getTime()
+  if (ms < 60_000) return 'just now'
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`
+  return `${Math.floor(ms / 86_400_000)}d ago`
+}
 
 function fmt(n: number): string {
   return n.toLocaleString()
@@ -35,8 +59,9 @@ function dayChipColor(days: number | null): { bg: string; fg: string } {
 
 export default async function OnboardingPage() {
   let snapshot
+  let diagnostics
   try {
-    snapshot = await getOnboardingSnapshot()
+    [snapshot, diagnostics] = await Promise.all([getOnboardingSnapshot(), getModelDiagnostics()])
   } catch (err) {
     return (
       <div>
@@ -61,14 +86,45 @@ export default async function OnboardingPage() {
     return a.daysUntilStart - b.daysUntilStart
   })
 
+  const needsAttention = !diagnostics.envVarSet || diagnostics.modelsInDb === 0
+
   return (
     <div>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Model onboarding</h1>
-        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-          Upcoming pages · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
+      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Model onboarding</h1>
+          <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+            Upcoming pages · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
+            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} model{diagnostics.modelsInDb === 1 ? '' : 's'} in db
+          </div>
         </div>
+        <SyncButton subtle={!needsAttention} />
       </div>
+
+      {/* Diagnostic banner — only shows when something is clearly wrong */}
+      {!diagnostics.envVarSet && (
+        <div style={{
+          background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.22)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+          fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: 'var(--red)' }}>MONDAY_BOARD_ID_MODELS not set in Vercel</strong><br />
+          Add this env var in Vercel → Settings → Environment Variables (Production scope):<br />
+          <code style={{ background: 'var(--surface-3)', padding: '1px 6px', borderRadius: 3, fontFamily: 'monospace' }}>MONDAY_BOARD_ID_MODELS=8307745433</code> then redeploy.
+        </div>
+      )}
+      {diagnostics.envVarSet && diagnostics.modelsInDb === 0 && (
+        <div style={{
+          background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.28)',
+          borderRadius: 12, padding: '14px 18px', marginBottom: 18,
+          fontSize: 12.5, color: 'var(--text-2)', lineHeight: 1.6,
+        }}>
+          <strong style={{ color: 'var(--amber)' }}>No models in the database yet.</strong> Env var is set (board {diagnostics.boardId}) but the sync hasn&apos;t pulled anything.
+          Hit <strong>Sync now</strong> above. If it fails, the error will tell us why — most likely the Monday API token doesn&apos;t have access to the chat-stars workspace.
+        </div>
+      )}
 
       {/* Coverage banner */}
       <div style={{
