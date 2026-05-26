@@ -10,6 +10,7 @@ import {
   REGION_SOLE_OWNER,
   displayName,
   getSectionManagers,
+  groupOrderIndex,
   isMainBoardManager,
   type Overseer,
 } from '@/lib/manager_sections'
@@ -50,7 +51,11 @@ export default async function DepartmentPage({ flag, name, regionCode, subtitle,
   const bucket = (b: keyof NonNullable<typeof stats>['byBucket']) => stats?.byBucket[b] ?? 0
   const fmt = (n: number) => n.toLocaleString()
 
-  const inPipelineGroups = (stats?.byGroup ?? []).filter(g => uiBucket(g.stage) !== null).slice(0, SUBSTAGE_DISPLAY_LIMIT)
+  // Match Monday's board order — preserves the top-to-bottom flow operators expect
+  const inPipelineGroups = (stats?.byGroup ?? [])
+    .filter(g => uiBucket(g.stage) !== null)
+    .sort((a, b) => groupOrderIndex(region, a.groupTitle) - groupOrderIndex(region, b.groupTitle))
+    .slice(0, SUBSTAGE_DISPLAY_LIMIT)
   const tierEntries = Object.entries(stats?.tierDist ?? {}).sort((a, b) => b[1] - a[1])
   const totalTiered = tierEntries.reduce((acc, [, v]) => acc + v, 0)
 
@@ -300,13 +305,13 @@ function StageDetailRow({ group, region, regionCode, isLast }: { group: GroupSum
       </div>
       <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {managers.length > 0 ? (
-          <div style={{ fontSize: 11.5, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 12, color: 'var(--text)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {managers.map(displayName).join(' · ')}
           </div>
         ) : (
-          <span style={{ fontSize: 11, color: 'var(--text-4)', fontStyle: 'italic' }}>main board</span>
+          <span style={{ fontSize: 11.5, color: 'var(--text-2)', fontStyle: 'italic' }}>main board</span>
         )}
-        {shift && <span style={{ fontSize: 10.5, color: 'var(--text-4)' }}>{shift}</span>}
+        {shift && <span style={{ fontSize: 11, color: 'var(--text-2)' }}>{shift}</span>}
       </div>
       {bucket && (
         <span style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--text-4)', fontWeight: 500 }}>{bucket}</span>

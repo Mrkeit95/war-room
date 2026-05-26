@@ -31,6 +31,69 @@ export const PH_SECTION_MANAGERS: SectionAssignment[] = [
   { groupTitle: 'POOL (AFTER WEEK 2)', managers: ['Prince Ellesor Torres', 'Gwyneth Fuentes', 'Arjay Labado', 'Pamela Amuro Miña'], shift: 'rotating EST shifts' },
 ]
 
+/** Canonical Monday board group order (top→bottom on Monday). Drives Stage Detail rendering. */
+export const GROUP_ORDER: Record<Region, string[]> = {
+  PH: [
+    'TYPEFORM',
+    'TRANSFERRED TO ALEKSANDAR (EXP)',
+    'SCHEDULED INTERVIEWS (EXP)',
+    'PENDING - DISCORD ONBOARDING(EXP)',
+    'PENDING TB PROBATION (EXP)',
+    'TB PROBATION (EXP)',
+    'STANDBY (EXP)',
+    'PENDING WEEK 1',
+    'WEEK 1 TRAINING',
+    'WEEK 2 TRAINING SHADOW+LIVE CHATS',
+    'WEEK 3-4 EXTRA CHATTING',
+    'POOL (AFTER WEEK 2)',
+    'TRAINING BOARD CHATTERS',
+    'STANDBY (FROM TB)',
+    'ACTIVE',
+    'PERSONAL TIME OFF',
+    'PROMOTED',
+    'OFFBOARDED',
+    'BLACKLISTED',
+  ],
+  EU: [
+    'No Experience/Passed typeform',
+    'TYPEFORMS',
+    'PASSED- TYPEFORMS',
+    'PENDING INTERVIEWS',
+    'SCHEDULED INTERVIEWS',
+    'PENDING- DISCORD ONBOARDING',
+    'WEEK 1- TRAINING (Non Exp)',
+    'WEEK 1- TRAINING (EXP)',
+    'STANDBY',
+    'OFFBOARDED',
+  ],
+  SA: [
+    'TYPEFORMS',
+    'PASSED TYPEFORM',
+    'SCHEDULED INTERVIEWS',
+    'WEEK 1- TRAINING',
+    'WEEK 2- TRAINING',
+    'PENDING- DISCORD ONBOARDING',
+    'STANDBY',
+    'OFFBOARDED',
+  ],
+  UK: [
+    'TYPEFORM',
+    'PASSED- TYPEFORMS',
+    'PENDING- INTERVIEWS',
+    'SCHEDULED- INTERVIEWS',
+    'WEEK 1- TRAINING',
+    'WEEK 2- TRAINING',
+    'STANDBY',
+    'OFFBOARDED',
+  ],
+}
+
+export function groupOrderIndex(region: Region, groupTitle: string | null | undefined): number {
+  if (!groupTitle) return Number.MAX_SAFE_INTEGER
+  const idx = GROUP_ORDER[region]?.indexOf(groupTitle)
+  return idx === -1 || idx === undefined ? Number.MAX_SAFE_INTEGER : idx
+}
+
 /** Regions where one person runs every section end-to-end. */
 export const REGION_SOLE_OWNER: Partial<Record<Region, string>> = {
   EU: 'Aleksandar Simic',
