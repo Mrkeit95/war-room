@@ -930,17 +930,20 @@ export async function getBoardSummary(): Promise<{ boards: BoardSummaryRow[]; to
   ])
   type SumRow = { board_name: string; running_sales: number | null; projection: number | null; goal: number | null; active_count: number | null; up_count: number | null; down_count: number | null; ratio: number | null; subs_pct: number | null; mom_pct: number | null; pct_to_goal: number | null; sub_revenue: number | null }
 
-  // Compute live per-board totals from page_board_map. These are the source of
-  // truth for running sales + active page count — board_summary (when synced)
-  // adds enrichment (goal, ratio, MoM%, % to goal).
+  // Compute live per-board totals from page_board_map. Sum running_sales for
+  // ACTIVE pages only — the rev tracker's per-board running totals also count
+  // only the active roster, so including inactive pages here inflated the
+  // numbers (e.g. BOARD 1 had 4 inactive pages adding $221k of phantom revenue).
   type LiveRow = { runningSum: number; activeCount: number }
   const live = new Map<string, LiveRow>()
   for (const board of BOARD_DISPLAY_ORDER) live.set(board, { runningSum: 0, activeCount: 0 })
   for (const r of (pagesRes.data ?? []) as { board_name: string; running_sales: number | null; active: boolean | null }[]) {
     const slot = live.get(r.board_name)
     if (!slot) continue
-    slot.runningSum += (r.running_sales ?? 0)
-    if (r.active === true) slot.activeCount += 1
+    if (r.active === true) {
+      slot.runningSum += (r.running_sales ?? 0)
+      slot.activeCount += 1
+    }
   }
 
   const enrich: Record<string, SumRow> = {}
@@ -1011,6 +1014,7 @@ export async function getTopCreators(limit = 5): Promise<TopCreator[]> {
   const { data, error } = await supabase
     .from('page_board_map')
     .select('page_name, board_name, running_sales, agency')
+    .eq('active', true)
     .not('running_sales', 'is', null)
     .order('running_sales', { ascending: false })
     .limit(limit)
