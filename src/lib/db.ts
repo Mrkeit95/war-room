@@ -900,6 +900,97 @@ export async function getRecentMovements(limit = 12): Promise<RecentMovement[]> 
     .filter(r => REGIONS.includes(r.region))
 }
 
+// ---------------------------------------------------------------------------
+// Revenue dashboard (rev tracker)
+// ---------------------------------------------------------------------------
+
+export type BoardSummaryRow = {
+  boardName: string                    // "BOARD 1" ... "TOWER", or "TOTALS"
+  runningSales: number | null
+  projection: number | null
+  goal: number | null
+  activeCount: number | null
+  upCount: number | null
+  downCount: number | null
+  ratio: number | null
+  subsPct: number | null
+  momPct: number | null
+  pctToGoal: number | null
+  subRevenue: number | null
+  pageCount: number                    // counted from page_board_map
+}
+
+const BOARD_DISPLAY_ORDER = ['BOARD 1', 'BOARD 2', 'BOARD 3', 'TRAINING BOARD', 'TOWER']
+
+export async function getBoardSummary(): Promise<{ boards: BoardSummaryRow[]; totals: BoardSummaryRow | null }> {
+  const supabase = createAdminClient()
+  const [summaryRes, pageCountsRes] = await Promise.all([
+    supabase.from('board_summary').select('*'),
+    supabase.from('page_board_map').select('board_name'),
+  ])
+  type SumRow = { board_name: string; running_sales: number | null; projection: number | null; goal: number | null; active_count: number | null; up_count: number | null; down_count: number | null; ratio: number | null; subs_pct: number | null; mom_pct: number | null; pct_to_goal: number | null; sub_revenue: number | null }
+
+  const pageCounts = new Map<string, number>()
+  for (const r of (pageCountsRes.data ?? []) as { board_name: string }[]) {
+    pageCounts.set(r.board_name, (pageCounts.get(r.board_name) ?? 0) + 1)
+  }
+
+  const mapped: Record<string, BoardSummaryRow> = {}
+  for (const r of (summaryRes.data ?? []) as SumRow[]) {
+    mapped[r.board_name] = {
+      boardName: r.board_name,
+      runningSales: r.running_sales,
+      projection: r.projection,
+      goal: r.goal,
+      activeCount: r.active_count,
+      upCount: r.up_count,
+      downCount: r.down_count,
+      ratio: r.ratio,
+      subsPct: r.subs_pct,
+      momPct: r.mom_pct,
+      pctToGoal: r.pct_to_goal,
+      subRevenue: r.sub_revenue,
+      pageCount: pageCounts.get(r.board_name) ?? 0,
+    }
+  }
+
+  const boards = BOARD_DISPLAY_ORDER
+    .map(b => mapped[b])
+    .filter((b): b is BoardSummaryRow => Boolean(b))
+
+  return { boards, totals: mapped['TOTALS'] ?? null }
+}
+
+export type TopCreator = {
+  pageName: string
+  boardName: string
+  runningSales: number | null
+  agency: string | null
+}
+
+export async function getTopCreators(limit = 5): Promise<TopCreator[]> {
+  const supabase = createAdminClient()
+  const { data, error } = await supabase
+    .from('page_board_map')
+    .select('page_name, board_name, running_sales, agency')
+    .not('running_sales', 'is', null)
+    .order('running_sales', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(`getTopCreators: ${error.message}`)
+  return ((data ?? []) as { page_name: string; board_name: string; running_sales: number | null; agency: string | null }[])
+    .map(r => ({ pageName: r.page_name, boardName: r.board_name, runningSales: r.running_sales, agency: r.agency }))
+}
+
+export async function getActiveCreatorCount(): Promise<number> {
+  const supabase = createAdminClient()
+  const { count, error } = await supabase
+    .from('candidates')
+    .select('id', { count: 'exact', head: true })
+    .in('current_stage', ['active', 'promoted'])
+  if (error) throw new Error(`getActiveCreatorCount: ${error.message}`)
+  return count ?? 0
+}
+
 export async function getLastSyncedAt(): Promise<string | null> {
   const supabase = createAdminClient()
   const { data } = await supabase

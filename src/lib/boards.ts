@@ -72,8 +72,13 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
     throw new Error(`getBoardsBreakdown (page_board_map): ${pbErr.message}`)
   }
   const pageToBoard = new Map<string, string>()
+  const pagesPerBoard = new Map<string, Set<string>>()       // authoritative page list per board
   for (const row of (pageBoardRaw ?? []) as { page_name: string; board_name: string }[]) {
-    pageToBoard.set(row.page_name.toUpperCase(), row.board_name)
+    const page = row.page_name.toUpperCase()
+    pageToBoard.set(page, row.board_name)
+    const set = pagesPerBoard.get(row.board_name) ?? new Set<string>()
+    set.add(page)
+    pagesPerBoard.set(row.board_name, set)
   }
 
   // 1b. Pod/team → board mapping from AE board layouts. SECONDARY source.
@@ -225,8 +230,12 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
     pods.set(acc.pod, arr)
   }
 
-  // 5. Also include boards from board_groups that have *no* current chatter
-  //    schedule activity, so they still appear as empty cards.
+  // 5. Also include boards we know about from the rev tracker or AE layouts
+  //    that have *no* current chatter-schedule activity, so they still appear
+  //    as empty cards.
+  for (const board of pagesPerBoard.keys()) {
+    if (!boardMap.has(board)) boardMap.set(board, new Map())
+  }
   for (const [board] of new Set([...podTeamToBoard.values()].map(b => [b, b]))) {
     if (!boardMap.has(board)) boardMap.set(board, new Map())
   }
@@ -254,17 +263,28 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
     podEntries.sort((a, b) => a.pod.localeCompare(b.pod))
 
     const boardChatters = new Set<string>()
-    const boardPages = new Set<string>()
     for (const p of podEntries) for (const t of p.teams) {
-      for (const pageName of t.pageNames) boardPages.add(pageName)
       for (const c of t.chatters) boardChatters.add(c.name)
+    }
+
+    // Authoritative page count comes from the revenue tracker. Fall back to
+    // counting unique pages observed across the chatter-schedule teams when
+    // the tracker has no rows for this board (e.g. "Unmapped").
+    const trackerPages = pagesPerBoard.get(board)
+    let pageCount: number
+    if (trackerPages && trackerPages.size > 0) {
+      pageCount = trackerPages.size
+    } else {
+      const fallback = new Set<string>()
+      for (const p of podEntries) for (const t of p.teams) for (const pn of t.pageNames) fallback.add(pn)
+      pageCount = fallback.size
     }
 
     boards.push({
       board,
       pods: podEntries,
       podCount: podEntries.length,
-      pageCount: boardPages.size,
+      pageCount,
       chatterCount: boardChatters.size,
     })
   }

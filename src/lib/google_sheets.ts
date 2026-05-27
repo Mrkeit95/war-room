@@ -15,6 +15,7 @@ export type RevenuePage = {
   active: boolean | null
   handle: string | null
   inflowUsername: string | null
+  runningSales: number | null          // month-to-date running sales (USD)
 }
 
 const BOARD_NORMALISE: Record<string, string> = {
@@ -109,6 +110,18 @@ export function parseRevenueTracker(csv: string): RevenuePage[] {
     if (seen.has(pageName)) continue   // dedupe across the sheet
     seen.add(pageName)
 
+    // Column index for Running Sales is right after the 31 daily-net cells.
+    // Layout: 0..5 meta, 6..10 historical months, 11 blank, 12..42 daily nets,
+    // 43 Running Sales. Be defensive: scan a window if the index doesn't match.
+    let runningSales = parseMoney(cells[43])
+    if (runningSales === null) {
+      // Try a small range around the expected index for layout drift.
+      for (let i = 42; i <= 46; i++) {
+        const v = parseMoney(cells[i])
+        if (v !== null) { runningSales = v; break }
+      }
+    }
+
     out.push({
       pageName,
       boardName: board,
@@ -116,6 +129,7 @@ export function parseRevenueTracker(csv: string): RevenuePage[] {
       agency: cells[4]?.trim() || null,
       active: parseBool(cells[5]),
       inflowUsername: cells[0]?.trim() || null,
+      runningSales,
     })
   }
 
@@ -130,7 +144,99 @@ function parseBool(raw: string | undefined): boolean | null {
   return null
 }
 
+/** Strip $ , and whitespace, return number or null for blanks/errors. */
+function parseMoney(raw: string | undefined): number | null {
+  if (!raw) return null
+  const cleaned = raw.replace(/[$,\s]/g, '')
+  if (!cleaned || cleaned === '-' || /^#/.test(cleaned)) return null  // skips "#DIV/0!" etc.
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : null
+}
+
 export async function fetchRevenuePages(): Promise<RevenuePage[]> {
   const csv = await fetchRevenueTrackerCsv()
   return parseRevenueTracker(csv)
+}
+
+// -------------------------------------------------------------------
+// BOARDS DATA tab — pre-computed per-board summary numbers
+// -------------------------------------------------------------------
+
+export type BoardSummary = {
+  boardName: string
+  runningSales: number | null
+  projection: number | null
+  goal: number | null
+  activeCount: number | null
+  upCount: number | null
+  downCount: number | null
+  ratio: number | null
+  subsPct: number | null
+  momPct: number | null
+  pctToGoal: number | null
+  subRevenue: number | null
+}
+
+function parsePercent(raw: string | undefined): number | null {
+  if (!raw) return null
+  const cleaned = raw.replace(/[%\s,]/g, '')
+  if (!cleaned || /^#/.test(cleaned)) return null
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n / 100 : null
+}
+
+function parseNumber(raw: string | undefined): number | null {
+  if (!raw) return null
+  const cleaned = raw.replace(/[,\s$]/g, '')
+  if (!cleaned || /^#/.test(cleaned)) return null
+  const n = Number(cleaned)
+  return Number.isFinite(n) ? n : null
+}
+
+async function fetchSummaryCsv(): Promise<string> {
+  const sheetId = process.env.REVENUE_SHEET_ID
+  if (!sheetId) throw new Error('REVENUE_SHEET_ID not set')
+  const gid = process.env.REVENUE_SUMMARY_GID || '0'    // BOARDS DATA tab is the default sheet
+  const url = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${encodeURIComponent(gid)}`
+  const res = await fetch(url, { redirect: 'follow', cache: 'no-store' })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Revenue summary fetch HTTP ${res.status}: ${body.slice(0, 200)}`)
+  }
+  return await res.text()
+}
+
+export function parseBoardSummary(csv: string): BoardSummary[] {
+  const lines = csv.split(/\r?\n/)
+  const out: BoardSummary[] = []
+  for (const line of lines) {
+    if (!line || line.trim().length === 0) continue
+    const cells = parseCSVRow(line)
+    const name = cells[0]?.trim().toUpperCase() ?? ''
+    if (!name) continue
+    const board = BOARD_NORMALISE[name] ?? (name === 'TOTALS' ? 'TOTALS' : null)
+    if (!board) continue
+    // Layout: A=name, B=running, C=projection, D=goal, E=blank, F=active, G=up,
+    // H=down, I=ratio, J=subs%, K=may/apr%, L=%-to-goal, M=sub rev
+    out.push({
+      boardName: board,
+      runningSales: parseMoney(cells[1]),
+      projection: parseMoney(cells[2]),
+      goal: parseMoney(cells[3]),
+      activeCount: parseNumber(cells[5]),
+      upCount: parseNumber(cells[6]),
+      downCount: parseNumber(cells[7]),
+      ratio: parseNumber(cells[8]),
+      subsPct: parsePercent(cells[9]),
+      momPct: parsePercent(cells[10]),
+      pctToGoal: parsePercent(cells[11]),
+      subRevenue: parseMoney(cells[12]),
+    })
+  }
+  return out
+}
+
+export async function fetchBoardSummary(): Promise<BoardSummary[]> {
+  const csv = await fetchSummaryCsv()
+  return parseBoardSummary(csv)
 }
