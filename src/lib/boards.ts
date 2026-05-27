@@ -65,20 +65,26 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   const supabase = createAdminClient()
 
   // 1a. Page → board mapping from the revenue tracker. PRIMARY source of truth.
+  //     Only ACTIVE pages count toward per-board totals — that matches the
+  //     "Active" column on the rev tracker (e.g. BOARD 1 = 39 active pages).
   const { data: pageBoardRaw, error: pbErr } = await supabase
     .from('page_board_map')
-    .select('page_name, board_name')
+    .select('page_name, board_name, active')
   if (pbErr && !/relation .* does not exist/i.test(pbErr.message)) {
     throw new Error(`getBoardsBreakdown (page_board_map): ${pbErr.message}`)
   }
   const pageToBoard = new Map<string, string>()
-  const pagesPerBoard = new Map<string, Set<string>>()       // authoritative page list per board
-  for (const row of (pageBoardRaw ?? []) as { page_name: string; board_name: string }[]) {
+  const pagesPerBoard = new Map<string, Set<string>>()       // active page list per board
+  for (const row of (pageBoardRaw ?? []) as { page_name: string; board_name: string; active: boolean | null }[]) {
     const page = row.page_name.toUpperCase()
+    // pageToBoard is used for team→board routing — include all pages here so
+    // chatter-schedule teams resolve even if their page is currently inactive.
     pageToBoard.set(page, row.board_name)
-    const set = pagesPerBoard.get(row.board_name) ?? new Set<string>()
-    set.add(page)
-    pagesPerBoard.set(row.board_name, set)
+    if (row.active === true) {
+      const set = pagesPerBoard.get(row.board_name) ?? new Set<string>()
+      set.add(page)
+      pagesPerBoard.set(row.board_name, set)
+    }
   }
 
   // 1b. Pod/team → board mapping from AE board layouts. SECONDARY source.

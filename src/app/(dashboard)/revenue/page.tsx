@@ -63,55 +63,45 @@ export default async function RevenuePage() {
         </div>
       </div>
 
-      {/* Top KPI row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 14 }}>
+      {/* Top KPI row — only the two we can actually compute */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14, marginBottom: 14 }}>
         <KpiCard
           label="MTD Revenue"
           accent="$"
           value={fmtMoney(mtdRevenue)}
           color="var(--green)"
-          progressPct={mtdPctToGoal}
-          progressLabel={`${Math.round(mtdPctToGoal * 100)}% of ${fmtMoney(mtdGoal)} goal`}
-          progressRight={`${(mtdPctToGoal * 100).toFixed(1)}%`}
+          progressPct={mtdGoal > 0 ? mtdPctToGoal : undefined}
+          progressLabel={mtdGoal > 0 ? `${Math.round(mtdPctToGoal * 100)}% of ${fmtMoney(mtdGoal)} goal` : 'goal not synced'}
+          progressRight={mtdGoal > 0 ? `${(mtdPctToGoal * 100).toFixed(1)}%` : undefined}
         />
-        <KpiCard label="Active Creators" accent="ppl" value={activeCount.toLocaleString()} />
-        <KpiCard label="Open Leads" accent="ppl" value="0" subtext="leads pipeline not yet wired" />
-        <KpiCard label="Outstanding" accent="$" value="$0" subtext="billing not yet wired" />
+        <KpiCard label="Active Creators" accent="pages" value={activeCount.toLocaleString()} subtext="marked active on the rev tracker" />
       </div>
 
       {/* Per-board cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 22 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 22 }}>
         {boards.map(b => <BoardCard key={b.boardName} board={b} />)}
       </div>
 
       {/* Top creators */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 14 }}>
-        <Panel
-          title="Top creators"
-          right={<Link href="/boards" style={{ fontSize: 11, color: 'var(--text-3)', textDecoration: 'none' }}>View all →</Link>}
-        >
-          {topCreators.length === 0 ? (
-            <div style={{ padding: '24px 4px', fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic' }}>
-              No creator revenue synced yet. Hit Sync now on /onboarding.
-            </div>
-          ) : (() => {
-            const maxRev = Math.max(...topCreators.map(c => c.runningSales ?? 0), 1)
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {topCreators.map((c, i) => (
-                  <CreatorRow key={c.pageName} index={i + 1} creator={c} maxRev={maxRev} />
-                ))}
-              </div>
-            )
-          })()}
-        </Panel>
-
-        <Panel title="Upcoming">
+      <Panel
+        title="Top creators"
+        right={<Link href="/boards" style={{ fontSize: 11, color: 'var(--text-3)', textDecoration: 'none' }}>View all →</Link>}
+      >
+        {topCreators.length === 0 ? (
           <div style={{ padding: '24px 4px', fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic' }}>
-            Calendar integration not wired yet.
+            No creator revenue synced yet. Hit Sync now on /onboarding.
           </div>
-        </Panel>
-      </div>
+        ) : (() => {
+          const maxRev = Math.max(...topCreators.map(c => c.runningSales ?? 0), 1)
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {topCreators.map((c, i) => (
+                <CreatorRow key={c.pageName} index={i + 1} creator={c} maxRev={maxRev} />
+              ))}
+            </div>
+          )
+        })()}
+      </Panel>
     </div>
   )
 }

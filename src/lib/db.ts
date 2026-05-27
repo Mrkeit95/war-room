@@ -924,41 +924,79 @@ const BOARD_DISPLAY_ORDER = ['BOARD 1', 'BOARD 2', 'BOARD 3', 'TRAINING BOARD', 
 
 export async function getBoardSummary(): Promise<{ boards: BoardSummaryRow[]; totals: BoardSummaryRow | null }> {
   const supabase = createAdminClient()
-  const [summaryRes, pageCountsRes] = await Promise.all([
+  const [summaryRes, pagesRes] = await Promise.all([
     supabase.from('board_summary').select('*'),
-    supabase.from('page_board_map').select('board_name'),
+    supabase.from('page_board_map').select('board_name, running_sales, active'),
   ])
   type SumRow = { board_name: string; running_sales: number | null; projection: number | null; goal: number | null; active_count: number | null; up_count: number | null; down_count: number | null; ratio: number | null; subs_pct: number | null; mom_pct: number | null; pct_to_goal: number | null; sub_revenue: number | null }
 
-  const pageCounts = new Map<string, number>()
-  for (const r of (pageCountsRes.data ?? []) as { board_name: string }[]) {
-    pageCounts.set(r.board_name, (pageCounts.get(r.board_name) ?? 0) + 1)
+  // Compute live per-board totals from page_board_map. These are the source of
+  // truth for running sales + active page count — board_summary (when synced)
+  // adds enrichment (goal, ratio, MoM%, % to goal).
+  type LiveRow = { runningSum: number; activeCount: number }
+  const live = new Map<string, LiveRow>()
+  for (const board of BOARD_DISPLAY_ORDER) live.set(board, { runningSum: 0, activeCount: 0 })
+  for (const r of (pagesRes.data ?? []) as { board_name: string; running_sales: number | null; active: boolean | null }[]) {
+    const slot = live.get(r.board_name)
+    if (!slot) continue
+    slot.runningSum += (r.running_sales ?? 0)
+    if (r.active === true) slot.activeCount += 1
   }
 
-  const mapped: Record<string, BoardSummaryRow> = {}
-  for (const r of (summaryRes.data ?? []) as SumRow[]) {
-    mapped[r.board_name] = {
-      boardName: r.board_name,
-      runningSales: r.running_sales,
-      projection: r.projection,
-      goal: r.goal,
-      activeCount: r.active_count,
-      upCount: r.up_count,
-      downCount: r.down_count,
-      ratio: r.ratio,
-      subsPct: r.subs_pct,
-      momPct: r.mom_pct,
-      pctToGoal: r.pct_to_goal,
-      subRevenue: r.sub_revenue,
-      pageCount: pageCounts.get(r.board_name) ?? 0,
-    }
+  const enrich: Record<string, SumRow> = {}
+  for (const r of (summaryRes.data ?? []) as SumRow[]) enrich[r.board_name] = r
+
+  const boards: BoardSummaryRow[] = []
+  for (const board of BOARD_DISPLAY_ORDER) {
+    const liveData = live.get(board) ?? { runningSum: 0, activeCount: 0 }
+    const e = enrich[board]
+    const goal = e?.goal ?? null
+    const running = liveData.runningSum > 0 ? liveData.runningSum : (e?.running_sales ?? null)
+    const pctToGoal = e?.pct_to_goal ?? (goal && running != null && goal > 0 ? running / goal : null)
+    boards.push({
+      boardName: board,
+      runningSales: running,
+      projection: e?.projection ?? null,
+      goal,
+      activeCount: liveData.activeCount,
+      upCount: e?.up_count ?? null,
+      downCount: e?.down_count ?? null,
+      ratio: e?.ratio ?? null,
+      subsPct: e?.subs_pct ?? null,
+      momPct: e?.mom_pct ?? null,
+      pctToGoal,
+      subRevenue: e?.sub_revenue ?? null,
+      pageCount: liveData.activeCount,    // page count = active page count
+    })
   }
 
-  const boards = BOARD_DISPLAY_ORDER
-    .map(b => mapped[b])
-    .filter((b): b is BoardSummaryRow => Boolean(b))
+  // Totals row: prefer the curated TOTALS row from the sheet, else sum live data
+  const liveTotal = boards.reduce(
+    (acc, b) => ({
+      running: acc.running + (b.runningSales ?? 0),
+      goal: acc.goal + (b.goal ?? 0),
+      active: acc.active + (b.activeCount ?? 0),
+    }),
+    { running: 0, goal: 0, active: 0 },
+  )
+  const totalsRow = enrich['TOTALS']
+  const totals: BoardSummaryRow = {
+    boardName: 'TOTALS',
+    runningSales: totalsRow?.running_sales ?? liveTotal.running,
+    projection: totalsRow?.projection ?? null,
+    goal: totalsRow?.goal ?? (liveTotal.goal > 0 ? liveTotal.goal : null),
+    activeCount: totalsRow?.active_count ?? liveTotal.active,
+    upCount: totalsRow?.up_count ?? null,
+    downCount: totalsRow?.down_count ?? null,
+    ratio: totalsRow?.ratio ?? null,
+    subsPct: totalsRow?.subs_pct ?? null,
+    momPct: totalsRow?.mom_pct ?? null,
+    pctToGoal: totalsRow?.pct_to_goal ?? (liveTotal.goal > 0 ? liveTotal.running / liveTotal.goal : null),
+    subRevenue: totalsRow?.sub_revenue ?? null,
+    pageCount: liveTotal.active,
+  }
 
-  return { boards, totals: mapped['TOTALS'] ?? null }
+  return { boards, totals }
 }
 
 export type TopCreator = {
@@ -981,12 +1019,17 @@ export async function getTopCreators(limit = 5): Promise<TopCreator[]> {
     .map(r => ({ pageName: r.page_name, boardName: r.board_name, runningSales: r.running_sales, agency: r.agency }))
 }
 
+/**
+ * "Active creators" matches the rev tracker's Active column — pages marked
+ * active=TRUE in the spreadsheet. Different from `current_stage = 'active'`
+ * on candidates (which is hires, not models).
+ */
 export async function getActiveCreatorCount(): Promise<number> {
   const supabase = createAdminClient()
   const { count, error } = await supabase
-    .from('candidates')
+    .from('page_board_map')
     .select('id', { count: 'exact', head: true })
-    .in('current_stage', ['active', 'promoted'])
+    .eq('active', true)
   if (error) throw new Error(`getActiveCreatorCount: ${error.message}`)
   return count ?? 0
 }
