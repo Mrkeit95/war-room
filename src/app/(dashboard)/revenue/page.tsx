@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getActiveCreatorCount, getBoardSummary, getTopCreators, getLastSyncedAt, type BoardSummaryRow, type TopCreator } from '@/lib/db'
 import { slugifyBoard } from '@/lib/boards'
+import SyncButton from '@/app/(dashboard)/onboarding/SyncButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,12 +56,15 @@ export default async function RevenuePage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 22 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Revenue tracker</h1>
-        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-          Month-to-date performance against goal · synced from Stellar OPS revenue tracker
-          {syncedAt && <> · <span style={{ fontFamily: 'monospace' }}>last sync {new Date(syncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</span></>}
+      <div style={{ marginBottom: 22, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Revenue tracker</h1>
+          <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+            Month-to-date performance against goal · synced from Stellar OPS revenue tracker
+            {syncedAt && <> · <span style={{ fontFamily: 'monospace' }}>last sync {new Date(syncedAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</span></>}
+          </div>
         </div>
+        <SyncButton subtle />
       </div>
 
       {/* Top KPI row — only the two we can actually compute */}

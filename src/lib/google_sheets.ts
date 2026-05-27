@@ -77,26 +77,60 @@ export async function fetchRevenueTrackerCsv(): Promise<string> {
 
 /**
  * Parse the per-page tab of the revenue tracker into page → board records.
- * Skips header rows, empty rows, and any "BOARD X" section divider rows.
+ * Locates columns by header name so the parse survives column shifts in the
+ * spreadsheet (new daily net columns added, columns reordered, etc).
  */
 export function parseRevenueTracker(csv: string): RevenuePage[] {
-  // Split on \r?\n but preserve quoted newlines (unlikely in this data; we'll
-  // be optimistic about a row-per-line layout).
   const lines = csv.split(/\r?\n/)
   const out: RevenuePage[] = []
   const seen = new Set<string>()
+
+  // Find the header row + its column indexes.
+  let headerCols: string[] | null = null
+  let idx = { inflow: 0, board: 1, page: 2, handle: 3, agency: 4, active: 5, running: -1 }
+  for (const line of lines) {
+    if (!line || line.trim().length === 0) continue
+    const cells = parseCSVRow(line)
+    const lower = cells.map(c => c.trim().toLowerCase())
+    if (lower.includes('inflow username') || lower.includes('teams')) {
+      headerCols = cells
+      const findIdx = (...needles: string[]) => {
+        for (let i = 0; i < lower.length; i++) {
+          if (needles.includes(lower[i])) return i
+        }
+        return -1
+      }
+      const inflow = findIdx('inflow username')
+      const board = findIdx('board')
+      const page = findIdx('teams')
+      const handle = findIdx('@')
+      const agency = findIdx('agency')
+      const active = findIdx('active')
+      const running = findIdx('running sales')
+      idx = {
+        inflow: inflow >= 0 ? inflow : 0,
+        board: board >= 0 ? board : 1,
+        page: page >= 0 ? page : 2,
+        handle: handle >= 0 ? handle : 3,
+        agency: agency >= 0 ? agency : 4,
+        active: active >= 0 ? active : 5,
+        running,
+      }
+      break
+    }
+  }
 
   for (const line of lines) {
     if (!line || line.trim().length === 0) continue
     const cells = parseCSVRow(line)
     if (cells.length < 6) continue
 
-    // Skip header row (it has "INFLOW USERNAME" or "TEAMS" labels)
-    const first = cells[0]?.trim().toUpperCase() ?? ''
+    // Skip the header row(s) — anything where cells[0] looks like a header label.
+    const first = cells[idx.inflow]?.trim().toUpperCase() ?? ''
     if (first === 'INFLOW USERNAME' || first === 'TEAMS') continue
 
-    const boardCell = cells[1]?.trim() ?? ''
-    const pageCell = cells[2]?.trim() ?? ''
+    const boardCell = cells[idx.board]?.trim() ?? ''
+    const pageCell = cells[idx.page]?.trim() ?? ''
 
     // Section divider rows like ",,BOARD 1,,,,,..." — board column is blank
     // but page-name column literally says "BOARD 1" / "BOARD 2" / etc. Skip.
@@ -104,35 +138,27 @@ export function parseRevenueTracker(csv: string): RevenuePage[] {
     if (!boardCell || !pageCell) continue
 
     const board = normaliseBoard(boardCell)
-    if (!board) continue   // unknown board label
+    if (!board) continue
 
     const pageName = pageCell.toUpperCase()
-    if (seen.has(pageName)) continue   // dedupe across the sheet
+    if (seen.has(pageName)) continue
     seen.add(pageName)
 
-    // Column index for Running Sales is right after the 31 daily-net cells.
-    // Layout: 0..5 meta, 6..10 historical months, 11 blank, 12..42 daily nets,
-    // 43 Running Sales. Be defensive: scan a window if the index doesn't match.
-    let runningSales = parseMoney(cells[43])
-    if (runningSales === null) {
-      // Try a small range around the expected index for layout drift.
-      for (let i = 42; i <= 46; i++) {
-        const v = parseMoney(cells[i])
-        if (v !== null) { runningSales = v; break }
-      }
-    }
+    const runningSales = idx.running >= 0 ? parseMoney(cells[idx.running]) : null
 
     out.push({
       pageName,
       boardName: board,
-      handle: cells[3]?.trim() || null,
-      agency: cells[4]?.trim() || null,
-      active: parseBool(cells[5]),
-      inflowUsername: cells[0]?.trim() || null,
+      handle: cells[idx.handle]?.trim() || null,
+      agency: cells[idx.agency]?.trim() || null,
+      active: parseBool(cells[idx.active]),
+      inflowUsername: cells[idx.inflow]?.trim() || null,
       runningSales,
     })
   }
 
+  // headerCols intentionally unused beyond detection above; suppress unused-var warning
+  void headerCols
   return out
 }
 
