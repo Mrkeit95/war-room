@@ -530,30 +530,38 @@ const DEPT_SLUG: Record<Region, string> = { PH: 'ph', EU: 'eu', SA: 'sa', UK: 'u
 function DepartmentRow({ dept }: { dept: DepartmentMovement }) {
   const label = REGION_LABEL[dept.region]
   const hasActivity = dept.transitions24h > 0 || dept.newLast24h > 0
+  const lines: { text: string; color: string }[] = []
+  if (dept.newLast24h > 0) lines.push({ text: `${dept.newLast24h} new candidate${dept.newLast24h === 1 ? '' : 's'} entered the pipeline`, color: 'var(--green)' })
+  if (dept.enteredTraining24h > 0) lines.push({ text: `${dept.enteredTraining24h} candidate${dept.enteredTraining24h === 1 ? '' : 's'} moved into training`, color: 'var(--blue)' })
+  if (dept.enteredStandby24h > 0) lines.push({ text: `${dept.enteredStandby24h} candidate${dept.enteredStandby24h === 1 ? '' : 's'} moved to standby`, color: 'var(--violet)' })
+  if (dept.enteredActive24h > 0) lines.push({ text: `${dept.enteredActive24h} candidate${dept.enteredActive24h === 1 ? '' : 's'} became active`, color: 'var(--green)' })
+  if (dept.offboarded24h > 0) lines.push({ text: `${dept.offboarded24h} candidate${dept.offboarded24h === 1 ? '' : 's'} offboarded`, color: 'var(--red)' })
+
   return (
     <Link href={`/departments/${DEPT_SLUG[dept.region]}`} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-        padding: '12px 16px',
-        display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto', alignItems: 'center', gap: 14,
+        padding: '14px 18px',
+        display: 'flex', gap: 14, alignItems: 'flex-start',
         cursor: 'pointer',
       }}>
-        <div style={{ fontSize: 18, lineHeight: 1, width: 22, textAlign: 'center' }}>{label.flag}</div>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3 }}>
-            {label.name} <span style={{ fontFamily: 'monospace', fontSize: 11.5, color: 'var(--text-3)', fontWeight: 400, marginLeft: 4 }}>· {dept.inPipeline.toLocaleString()} in pipeline</span>
+        <div style={{ fontSize: 18, lineHeight: 1, width: 22, textAlign: 'center', flexShrink: 0, marginTop: 2 }}>{label.flag}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 6 }}>
+            {label.name} · {dept.inPipeline.toLocaleString()} candidates currently in pipeline
           </div>
-          <div style={{ fontSize: 11.5, color: hasActivity ? 'var(--text-3)' : 'var(--text-4)', fontFamily: 'monospace', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {dept.newLast24h > 0 && <span><span style={{ color: 'var(--green)' }}>+{dept.newLast24h}</span> new</span>}
-            {dept.enteredTraining24h > 0 && <span><span style={{ color: 'var(--blue)' }}>↑{dept.enteredTraining24h}</span> to training</span>}
-            {dept.enteredStandby24h > 0 && <span><span style={{ color: 'var(--violet)' }}>→{dept.enteredStandby24h}</span> standby</span>}
-            {dept.enteredActive24h > 0 && <span><span style={{ color: 'var(--green)' }}>✓{dept.enteredActive24h}</span> active</span>}
-            {dept.offboarded24h > 0 && <span><span style={{ color: 'var(--red)' }}>−{dept.offboarded24h}</span> offboarded</span>}
-            {!hasActivity && <span style={{ fontStyle: 'italic' }}>no movement</span>}
-          </div>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', textAlign: 'right' }}>
-          {dept.transitions24h > 0 ? `${dept.transitions24h} change${dept.transitions24h === 1 ? '' : 's'}` : ''}
+          {hasActivity ? (
+            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {lines.map((l, i) => (
+                <li key={i} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.45 }}>
+                  <span style={{ color: l.color, fontWeight: 700, fontFamily: 'monospace', display: 'inline-block', width: 22 }}>•</span>
+                  {l.text}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>No movement in the last 24h.</div>
+          )}
         </div>
       </div>
     </Link>
@@ -577,27 +585,69 @@ function StageDeltaRow({ delta }: { delta: StageDelta }) {
   const region = REGION_LABEL[delta.region]
   const isDrop = delta.delta < 0
   const isBigDrop = delta.delta <= -5
-  const deltaColor = isBigDrop ? 'var(--red)' : isDrop ? 'var(--amber)' : 'var(--green)'
-  const sign = delta.delta > 0 ? '+' : ''
-  // Link to the segment modal so the operator can drill into who's in there now.
+  const accent = isBigDrop ? 'var(--red)' : isDrop ? 'var(--amber)' : 'var(--green)'
+
+  // Headline sentence: what actually changed and by how much.
+  const headline = (() => {
+    if (delta.delta < 0) return `${Math.abs(delta.delta)} candidate${Math.abs(delta.delta) === 1 ? '' : 's'} left this stage`
+    if (delta.delta > 0) return `${delta.delta} candidate${delta.delta === 1 ? '' : 's'} entered this stage`
+    return 'Net unchanged, but candidates moved through'
+  })()
+
+  // Group leftStage by destination so we can say "3 moved to standby, 2 to active"
+  const leftByDest: Record<string, string[]> = {}
+  for (const l of delta.leftStage) {
+    const bucket = uiBucketForStage(l.toStage)
+    const key = l.toStage === 'offboarded' ? 'offboarded' : (bucket === 'all' ? 'other' : bucket)
+    if (!leftByDest[key]) leftByDest[key] = []
+    leftByDest[key].push(l.name)
+  }
+  const enteredFromBuckets = (() => {
+    const m: Record<string, string[]> = {}
+    for (const e of delta.enteredStage) {
+      const key = e.fromStage ? (e.fromStage === 'offboarded' ? 'offboarded' : uiBucketForStage(e.fromStage)) : 'new'
+      const label = key === 'new' ? 'new candidates' : key
+      if (!m[label]) m[label] = []
+      m[label].push(e.name)
+    }
+    return m
+  })()
+
   const segment = `${delta.region.toLowerCase()}:${uiBucketForStage(delta.stage)}`
   return (
     <Link href={`/?segment=${encodeURIComponent(segment)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-        padding: '10px 14px',
-        display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto auto', alignItems: 'center', gap: 14,
-        cursor: 'pointer',
-        borderLeft: isBigDrop ? '2px solid var(--red)' : isDrop ? '2px solid var(--amber)' : '2px solid var(--green)',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '14px 18px', cursor: 'pointer',
+        borderLeft: `2px solid ${accent}`,
       }}>
-        <div style={{ fontSize: 13, lineHeight: 1, width: 18, textAlign: 'center' }}>{region.flag}</div>
-        <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{delta.groupTitle}</div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
-          {delta.yesterdayCount} → {delta.todayCount}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+          <span style={{ fontSize: 14, lineHeight: 1 }}>{region.flag}</span>
+          <div style={{ fontSize: 13.5, fontWeight: 500, flex: 1, minWidth: 0 }}>{region.name} · {delta.groupTitle}</div>
         </div>
-        <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 44, textAlign: 'right' }}>
-          {sign}{delta.delta}
+        <div style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5, marginBottom: 6 }}>
+          Yesterday <strong style={{ color: 'var(--text)' }}>{delta.yesterdayCount}</strong> → today <strong style={{ color: 'var(--text)' }}>{delta.todayCount}</strong> · <span style={{ color: accent, fontWeight: 700 }}>{headline}</span>
         </div>
+        {delta.leftStage.length > 0 && (
+          <ul style={{ margin: '4px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {Object.entries(leftByDest).map(([dest, names]) => (
+              <li key={`out-${dest}`} style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
+                <span style={{ color: 'var(--amber)', fontWeight: 700, fontFamily: 'monospace', display: 'inline-block', width: 22 }}>→</span>
+                <strong style={{ color: 'var(--text-2)' }}>{names.length}</strong> moved to {dest}: <span style={{ color: 'var(--text-3)' }}>{truncateNames(names)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {delta.enteredStage.length > 0 && (
+          <ul style={{ margin: '4px 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {Object.entries(enteredFromBuckets).map(([source, names]) => (
+              <li key={`in-${source}`} style={{ fontSize: 11.5, color: 'var(--text-3)', lineHeight: 1.45 }}>
+                <span style={{ color: 'var(--green)', fontWeight: 700, fontFamily: 'monospace', display: 'inline-block', width: 22 }}>←</span>
+                <strong style={{ color: 'var(--text-2)' }}>{names.length}</strong> arrived from {source}: <span style={{ color: 'var(--text-3)' }}>{truncateNames(names)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </Link>
   )
@@ -617,31 +667,48 @@ function uiBucketForStage(stage: string): string {
   }
 }
 
+function truncateNames(names: string[], limit = 5): string {
+  if (names.length === 0) return ''
+  if (names.length <= limit) return names.join(', ')
+  return `${names.slice(0, limit).join(', ')} +${names.length - limit} more`
+}
+
 function ManagerRow({ manager }: { manager: ManagerActivity }) {
   const hasActivity = manager.transitions24h > 0 || manager.newLast24h > 0
+  const lines: { count: number; text: string; names: string[]; color: string }[] = []
+  if (manager.newLast24h > 0) lines.push({ count: manager.newLast24h, text: `new candidate${manager.newLast24h === 1 ? '' : 's'} assigned`, names: manager.newCandidateNames, color: 'var(--green)' })
+  if (manager.enteredTraining24h > 0) lines.push({ count: manager.enteredTraining24h, text: `moved into training`, names: manager.enteredTrainingNames, color: 'var(--blue)' })
+  if (manager.enteredStandby24h > 0) lines.push({ count: manager.enteredStandby24h, text: `moved to standby`, names: manager.enteredStandbyNames, color: 'var(--violet)' })
+  if (manager.enteredActive24h > 0) lines.push({ count: manager.enteredActive24h, text: `became active`, names: manager.enteredActiveNames, color: 'var(--green)' })
+  if (manager.offboarded24h > 0) lines.push({ count: manager.offboarded24h, text: `offboarded`, names: manager.offboardedNames, color: 'var(--red)' })
+
   return (
     <Link href={`/managers?focus=${encodeURIComponent(manager.name)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
       <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
-        padding: '10px 14px',
-        display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr) auto', alignItems: 'center', gap: 14,
-        cursor: 'pointer',
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '14px 18px', cursor: 'pointer',
       }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.displayName}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.role}</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: hasActivity ? 8 : 0 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.displayName}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', marginTop: 1 }}>{manager.role}</div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {manager.candidatesAssigned.toLocaleString()} currently assigned
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, color: hasActivity ? 'var(--text-3)' : 'var(--text-4)', fontFamily: 'monospace', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {manager.newLast24h > 0 && <span><span style={{ color: 'var(--green)' }}>+{manager.newLast24h}</span> new</span>}
-          {manager.enteredTraining24h > 0 && <span><span style={{ color: 'var(--blue)' }}>↑{manager.enteredTraining24h}</span> training</span>}
-          {manager.enteredStandby24h > 0 && <span><span style={{ color: 'var(--violet)' }}>→{manager.enteredStandby24h}</span> standby</span>}
-          {manager.enteredActive24h > 0 && <span><span style={{ color: 'var(--green)' }}>✓{manager.enteredActive24h}</span> active</span>}
-          {manager.offboarded24h > 0 && <span><span style={{ color: 'var(--red)' }}>−{manager.offboarded24h}</span> off</span>}
-          {!hasActivity && <span style={{ fontStyle: 'italic' }}>no activity</span>}
-        </div>
-        <div style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'monospace', textAlign: 'right' }}>
-          {manager.candidatesAssigned.toLocaleString()} assigned
-        </div>
+        {hasActivity ? (
+          <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {lines.map((l, i) => (
+              <li key={i} style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.45 }}>
+                <span style={{ color: l.color, fontWeight: 700, fontFamily: 'monospace', display: 'inline-block', width: 22 }}>•</span>
+                <strong style={{ color: 'var(--text)' }}>{l.count}</strong> {l.text}{l.names.length > 0 && <>: <span style={{ color: 'var(--text-3)' }}>{truncateNames(l.names)}</span></>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--text-4)', fontStyle: 'italic' }}>No new assignments or stage changes in the last 24h.</div>
+        )}
       </div>
     </Link>
   )

@@ -613,6 +613,10 @@ export type StageDelta = {
   yesterdayCount: number
   todayCount: number
   delta: number                     // today - yesterday
+  // What actually moved in / out of this stage in the last 24h. Net delta and
+  // gross movement may differ when people both enter and leave the same stage.
+  leftStage: { name: string; toStage: CanonicalStage }[]
+  enteredStage: { name: string; fromStage: CanonicalStage | null }[]
 }
 
 const PRETTY_STAGE: Record<CanonicalStage, string> = {
@@ -643,11 +647,15 @@ export async function getStageDeltas(minDelta = 1): Promise<StageDelta[]> {
   const supabase = createAdminClient()
   const today = new Date().toISOString().slice(0, 10)
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
 
   type Row = { region: Region; stage: CanonicalStage; candidate_count: number }
-  const [todayRes, yesterdayRes] = await Promise.all([
+  const [todayRes, yesterdayRes, transRes] = await Promise.all([
     supabase.from('pipeline_snapshots').select('region, stage, candidate_count').eq('snapshot_date', today),
     supabase.from('pipeline_snapshots').select('region, stage, candidate_count').eq('snapshot_date', yesterday),
+    supabase.from('stage_transitions')
+      .select('from_stage, to_stage, candidates!inner(name, region)')
+      .gte('detected_at', since24h),
   ])
   const todayRows = (todayRes.data ?? []) as Row[]
   const yesterdayRows = (yesterdayRes.data ?? []) as Row[]
@@ -657,21 +665,43 @@ export async function getStageDeltas(minDelta = 1): Promise<StageDelta[]> {
   const tMap = new Map<string, number>()
   for (const r of todayRows) tMap.set(`${r.region}|${r.stage}`, r.candidate_count)
 
-  const keys = new Set<string>([...yMap.keys(), ...tMap.keys()])
+  // Group transitions by (region, stage) for the leftStage / enteredStage lists.
+  const leftMap = new Map<string, { name: string; toStage: CanonicalStage }[]>()
+  const enteredMap = new Map<string, { name: string; fromStage: CanonicalStage | null }[]>()
+  for (const row of (transRes.data ?? []) as { from_stage: CanonicalStage | null; to_stage: CanonicalStage; candidates: { name: string; region: Region } | { name: string; region: Region }[] }[]) {
+    const cand = Array.isArray(row.candidates) ? row.candidates[0] : row.candidates
+    if (!cand?.region) continue
+    if (row.from_stage) {
+      const k = `${cand.region}|${row.from_stage}`
+      const arr = leftMap.get(k) ?? []
+      arr.push({ name: cand.name, toStage: row.to_stage })
+      leftMap.set(k, arr)
+    }
+    const k = `${cand.region}|${row.to_stage}`
+    const arr = enteredMap.get(k) ?? []
+    arr.push({ name: cand.name, fromStage: row.from_stage })
+    enteredMap.set(k, arr)
+  }
+
+  const keys = new Set<string>([...yMap.keys(), ...tMap.keys(), ...leftMap.keys(), ...enteredMap.keys()])
   const deltas: StageDelta[] = []
   for (const k of keys) {
     const [region, stage] = k.split('|') as [Region, CanonicalStage]
     const todayCount = tMap.get(k) ?? 0
     const yesterdayCount = yMap.get(k) ?? 0
     const delta = todayCount - yesterdayCount
-    if (Math.abs(delta) < minDelta) continue
+    const left = leftMap.get(k) ?? []
+    const entered = enteredMap.get(k) ?? []
+    // Surface anything with a count delta OR any actual transitions in/out — even if net is 0.
+    if (Math.abs(delta) < minDelta && left.length === 0 && entered.length === 0) continue
     deltas.push({
       region, stage,
       groupTitle: PRETTY_STAGE[stage] ?? stage,
       yesterdayCount, todayCount, delta,
+      leftStage: left,
+      enteredStage: entered,
     })
   }
-  // Sort: biggest absolute movement first, with drops surfacing above gains of same magnitude.
   deltas.sort((a, b) => {
     const abs = Math.abs(b.delta) - Math.abs(a.delta)
     if (abs !== 0) return abs
@@ -693,19 +723,25 @@ export type RecentMovement = {
 export type ManagerActivity = {
   name: string
   displayName: string
-  role: string                       // "PH Recruiter", "EU Head", "AE · BOARD 1", "Training Head", etc.
-  candidatesAssigned: number         // current count of in-pipeline candidates assigned to them
+  role: string
+  candidatesAssigned: number
   newLast24h: number
   transitions24h: number
   enteredTraining24h: number
   enteredStandby24h: number
   enteredActive24h: number
   offboarded24h: number
+  // Concrete names for each bucket so the briefing reads like a report, not a count
+  newCandidateNames: string[]
+  enteredTrainingNames: string[]
+  enteredStandbyNames: string[]
+  enteredActiveNames: string[]
+  offboardedNames: string[]
 }
 
 // Configured roster: the people we care about reporting on. Anyone outside this
 // list isn't surfaced even if they appear in assigned_manager.
-type RosterEntry = { monManager: string; displayName: string; role: string; sortGroup: number }
+type RosterEntry = { monManager: string; displayName: string; role: string; sortGroup: number; excludeFromBriefing?: boolean }
 
 function getManagerRoster(): RosterEntry[] {
   return [
@@ -722,10 +758,10 @@ function getManagerRoster(): RosterEntry[] {
     { monManager: 'Gwyneth Fuentes', displayName: 'Gwyneth Fuentes', role: 'PH · Week 3-4 / TB', sortGroup: 1 },
     // Training head
     { monManager: 'Allyson Sam', displayName: 'Allyson Sam', role: 'Head of Training', sortGroup: 2 },
-    // AEs
-    { monManager: 'Day Quintero', displayName: 'Day Quintero', role: 'AE · BOARD 1', sortGroup: 3 },
-    { monManager: 'Angie Toro', displayName: 'Angie Toro', role: 'AE · BOARD 2', sortGroup: 3 },
-    { monManager: 'Iori Vukotic', displayName: 'Iori Vukotic', role: 'AE · BOARD 3', sortGroup: 3 },
+    // AEs — kept in the roster for board mapping, hidden from the briefing per operator preference
+    { monManager: 'Day Quintero', displayName: 'Day Quintero', role: 'AE · BOARD 1', sortGroup: 3, excludeFromBriefing: true },
+    { monManager: 'Angie Toro', displayName: 'Angie Toro', role: 'AE · BOARD 2', sortGroup: 3, excludeFromBriefing: true },
+    { monManager: 'Iori Vukotic', displayName: 'Iori Vukotic', role: 'AE · BOARD 3', sortGroup: 3, excludeFromBriefing: true },
     // Regional heads
     { monManager: 'Aleksandar Simic', displayName: 'Aleksandar Simic', role: 'EU Head', sortGroup: 4 },
     { monManager: 'JUAN SEBASTIAN GONZALEZ PEREZ', displayName: 'Juan Sebastian Gonzalez Perez', role: 'SA Head', sortGroup: 4 },
@@ -745,6 +781,7 @@ export async function getManagerActivity(): Promise<ManagerActivity[]> {
   // Initialise per-manager accumulator.
   const acc = new Map<string, ManagerActivity>()
   for (const r of roster) {
+    if (r.excludeFromBriefing) continue
     acc.set(r.monManager, {
       name: r.monManager,
       displayName: r.displayName,
@@ -756,44 +793,64 @@ export async function getManagerActivity(): Promise<ManagerActivity[]> {
       enteredStandby24h: 0,
       enteredActive24h: 0,
       offboarded24h: 0,
+      newCandidateNames: [],
+      enteredTrainingNames: [],
+      enteredStandbyNames: [],
+      enteredActiveNames: [],
+      offboardedNames: [],
     })
   }
 
-  // 1. Current assignments + new-in-24h.
-  type Cand = { assigned_manager: string | null; current_stage: CanonicalStage; monday_created_at: string | null }
+  // 1. Current assignments + new-in-24h, with the new candidates' names.
+  type Cand = { name: string; assigned_manager: string | null; current_stage: CanonicalStage; monday_created_at: string | null }
   const cands = await fetchAllPaged<Cand>((from, to) =>
     supabase.from('candidates')
-      .select('assigned_manager, current_stage, monday_created_at')
+      .select('name, assigned_manager, current_stage, monday_created_at')
       .neq('current_stage', 'offboarded')
       .range(from, to),
   )
   for (const c of cands) {
     if (!c.assigned_manager) continue
     const r = lookup.get(c.assigned_manager.toLowerCase())
-    if (!r) continue
-    const entry = acc.get(r.monManager)!
+    if (!r || r.excludeFromBriefing) continue
+    const entry = acc.get(r.monManager)
+    if (!entry) continue
     entry.candidatesAssigned += 1
-    if (c.monday_created_at && c.monday_created_at >= since24h) entry.newLast24h += 1
+    if (c.monday_created_at && c.monday_created_at >= since24h) {
+      entry.newLast24h += 1
+      entry.newCandidateNames.push(c.name)
+    }
   }
 
-  // 2. 24h transitions joined to candidates.assigned_manager.
+  // 2. 24h transitions joined to candidates — capture names along with counts.
   const { data: transRaw, error: tErr } = await supabase
     .from('stage_transitions')
-    .select('to_stage, candidates!inner(assigned_manager)')
+    .select('to_stage, candidates!inner(name, assigned_manager)')
     .gte('detected_at', since24h)
   if (tErr) throw new Error(`getManagerActivity (transitions): ${tErr.message}`)
-  for (const row of (transRaw ?? []) as { to_stage: CanonicalStage; candidates: { assigned_manager: string | null } | { assigned_manager: string | null }[] }[]) {
+  for (const row of (transRaw ?? []) as { to_stage: CanonicalStage; candidates: { name: string; assigned_manager: string | null } | { name: string; assigned_manager: string | null }[] }[]) {
     const cand = Array.isArray(row.candidates) ? row.candidates[0] : row.candidates
     if (!cand?.assigned_manager) continue
     const r = lookup.get(cand.assigned_manager.toLowerCase())
-    if (!r) continue
-    const entry = acc.get(r.monManager)!
+    if (!r || r.excludeFromBriefing) continue
+    const entry = acc.get(r.monManager)
+    if (!entry) continue
     entry.transitions24h += 1
-    if (row.to_stage === 'offboarded') entry.offboarded24h += 1
+    if (row.to_stage === 'offboarded') {
+      entry.offboarded24h += 1
+      entry.offboardedNames.push(cand.name)
+    }
     const b = uiBucket(row.to_stage)
-    if (b === 'training') entry.enteredTraining24h += 1
-    else if (b === 'standby') entry.enteredStandby24h += 1
-    else if (b === 'active') entry.enteredActive24h += 1
+    if (b === 'training') {
+      entry.enteredTraining24h += 1
+      entry.enteredTrainingNames.push(cand.name)
+    } else if (b === 'standby') {
+      entry.enteredStandby24h += 1
+      entry.enteredStandbyNames.push(cand.name)
+    } else if (b === 'active') {
+      entry.enteredActive24h += 1
+      entry.enteredActiveNames.push(cand.name)
+    }
   }
 
   // Sort: active (most transitions) first within group, then by sortGroup
