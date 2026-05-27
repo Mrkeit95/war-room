@@ -233,6 +233,7 @@ export const BOARD_TO_AE: Record<string, string> = {
   'BOARD 2': 'Angie Toro',
   'BOARD 3': 'Iori Vukotic',
   'TRAINING BOARD': 'Allyson Sam',
+  // TOWER is its own thing on the revenue tracker — no AE assigned yet
 }
 
 export function aeForBoard(boardAssignment: string | null | undefined): string | null {

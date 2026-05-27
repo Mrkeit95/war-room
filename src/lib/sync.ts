@@ -14,6 +14,7 @@ import {
   type ParsedModel,
   type ParsedPageAssignment,
 } from './monday'
+import { fetchRevenuePages, type RevenuePage } from './google_sheets'
 import { detectTrack, normalizeStage, type CanonicalStage } from './stages'
 
 export type SyncResult = {
@@ -22,6 +23,7 @@ export type SyncResult = {
   modelsSynced: number
   pageAssignmentsSynced: number
   boardGroupsSynced: number
+  pageBoardMapSynced: number
   transitionsRecorded: number
   durationMs: number
   fetchMs: number
@@ -45,7 +47,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
 
   try {
     const tFetch = Date.now()
-    const [boards, modelBoard, assignmentBoard, boardLayouts] = await Promise.all([
+    const [boards, modelBoard, assignmentBoard, boardLayouts, revenuePages] = await Promise.all([
       fetchAllBoards(),
       fetchModelBoard(),
       fetchPageAssignmentBoard(),
@@ -54,6 +56,10 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       fetchBoardLayouts().catch(err => {
         warnings.push(`Board layouts fetch failed: ${err instanceof Error ? err.message : String(err)}`)
         return [] as ParsedBoardGroup[]
+      }),
+      fetchRevenuePages().catch(err => {
+        warnings.push(`Revenue tracker fetch failed: ${err instanceof Error ? err.message : String(err)}`)
+        return [] as RevenuePage[]
       }),
     ])
     const fetchMs = Date.now() - tFetch
@@ -215,6 +221,28 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       boardGroupsSynced = rows.length
     }
 
+    // Page → board mapping from the revenue tracker (source of truth).
+    let pageBoardMapSynced = 0
+    if (revenuePages.length > 0) {
+      const rows = revenuePages.map(p => ({
+        page_name: p.pageName,
+        board_name: p.boardName,
+        agency: p.agency,
+        active: p.active,
+        handle: p.handle,
+        inflow_username: p.inflowUsername,
+        last_synced_at: new Date().toISOString(),
+      }))
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const slice = rows.slice(i, i + CHUNK)
+        const { error: pbErr } = await supabase
+          .from('page_board_map')
+          .upsert(slice, { onConflict: 'page_name' })
+        if (pbErr) throw new Error(`page_board_map upsert failed at offset ${i}: ${pbErr.message}`)
+      }
+      pageBoardMapSynced = rows.length
+    }
+
     const finishedAt = new Date()
     await supabase
       .from('sync_runs')
@@ -232,6 +260,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       modelsSynced,
       pageAssignmentsSynced,
       boardGroupsSynced,
+      pageBoardMapSynced,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       fetchMs,

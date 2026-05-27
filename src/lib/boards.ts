@@ -48,7 +48,7 @@ export type BoardEntry = {
   chatterCount: number
 }
 
-const BOARD_PRIORITY = ['BOARD 1', 'BOARD 2', 'BOARD 3', 'TRAINING BOARD']
+const BOARD_PRIORITY = ['BOARD 1', 'BOARD 2', 'BOARD 3', 'TRAINING BOARD', 'TOWER']
 
 function splitPipeNames(pageNameRaw: string | null): string[] {
   if (!pageNameRaw) return []
@@ -64,15 +64,26 @@ export function splitChatterNames(raw: string | null | undefined): string[] {
 export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
   const supabase = createAdminClient()
 
-  // 1. Authoritative pod/team → board mapping. Re-parse at read time so the
-  //    flexible parser logic applies without waiting on a fresh sync.
+  // 1a. Page → board mapping from the revenue tracker. PRIMARY source of truth.
+  const { data: pageBoardRaw, error: pbErr } = await supabase
+    .from('page_board_map')
+    .select('page_name, board_name')
+  if (pbErr && !/relation .* does not exist/i.test(pbErr.message)) {
+    throw new Error(`getBoardsBreakdown (page_board_map): ${pbErr.message}`)
+  }
+  const pageToBoard = new Map<string, string>()
+  for (const row of (pageBoardRaw ?? []) as { page_name: string; board_name: string }[]) {
+    pageToBoard.set(row.page_name.toUpperCase(), row.board_name)
+  }
+
+  // 1b. Pod/team → board mapping from AE board layouts. SECONDARY source.
   const { data: groupsRaw, error: gErr } = await supabase
     .from('board_groups')
     .select('board_name, pod, team, group_title')
   if (gErr) throw new Error(`getBoardsBreakdown (groups): ${gErr.message}`)
   type GroupRow = { board_name: string; pod: string | null; team: string | null; group_title: string }
-  const podTeamToBoard = new Map<string, string>()    // key: `${pod}|${team}` → board_name
-  const podToBoard = new Map<string, string>()        // key: pod → board_name (each pod lives on one AE board)
+  const podTeamToBoard = new Map<string, string>()
+  const podToBoard = new Map<string, string>()
   for (const row of (groupsRaw ?? []) as GroupRow[]) {
     const reparsed = parseBoardGroup(row.group_title)
     const pod = (reparsed.pod ?? row.pod)?.toUpperCase() ?? null
@@ -158,14 +169,31 @@ export async function getBoardsBreakdown(): Promise<BoardEntry[]> {
     }
   }
 
-  // 4. Bucket teams by their authoritative board. If (pod, team) isn't an
-  //    explicit entry on any AE board, fall back to the board that owns the
-  //    pod — a pod doesn't change boards just because a new team got added.
+  // 4. Bucket teams by their authoritative board, in this priority:
+  //      1. Revenue tracker page → board (most up-to-date)
+  //      2. AE board layout's exact (pod, team) entry
+  //      3. AE board layout's pod-only entry (handles brand-new teams on
+  //         existing pods that aren't on the layout yet)
+  //      4. "Unmapped"
   const boardMap = new Map<string, Map<string, TeamEntry[]>>()
   for (const acc of teamMap.values()) {
     const podUpper = acc.pod.toUpperCase()
     const lookupKey = `${podUpper}|${acc.team.toUpperCase()}`
-    const board = podTeamToBoard.get(lookupKey) ?? podToBoard.get(podUpper) ?? 'Unmapped'
+
+    // Vote based on the team's page names against the rev tracker.
+    let board: string | null = null
+    if (pageToBoard.size > 0) {
+      const votes = new Map<string, number>()
+      for (const pageName of acc.pageNames) {
+        const b = pageToBoard.get(pageName.toUpperCase())
+        if (b) votes.set(b, (votes.get(b) ?? 0) + 1)
+      }
+      let bestVotes = 0
+      for (const [b, v] of votes) {
+        if (v > bestVotes) { board = b; bestVotes = v }
+      }
+    }
+    if (!board) board = podTeamToBoard.get(lookupKey) ?? podToBoard.get(podUpper) ?? 'Unmapped'
 
     const chatters: ChatterEntry[] = []
     for (const [name, chatterAcc] of acc.chatters) {
@@ -271,6 +299,7 @@ export function unslugifyBoard(slug: string): string | null {
   const lower = slug.replace(/-/g, ' ').toUpperCase()
   if (BOARD_PRIORITY.includes(lower)) return lower
   if (lower === 'UNMAPPED') return 'Unmapped'
+  if (lower === 'TOWER') return 'TOWER'
   return null
 }
 
