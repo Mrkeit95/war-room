@@ -580,7 +580,16 @@ export async function getDepartmentMovements(): Promise<DepartmentMovement[]> {
 
   for (const c of candidates) {
     if (!REGIONS.includes(c.region)) continue
-    if (c.current_stage !== 'offboarded') acc[c.region].inPipeline += 1
+    // "In pipeline" excludes hires/promoted/PTO (active bucket). PH additionally
+    // excludes standby + pool because that pool is cross-region — surfacing
+    // it under PH inflates the headcount with chatters serving other regions.
+    const bucket = uiBucket(c.current_stage)
+    const isActive = bucket === 'active'
+    const isStandbyPool = bucket === 'standby'
+    const exclude = c.current_stage === 'offboarded'
+      || isActive
+      || (c.region === 'PH' && isStandbyPool)
+    if (!exclude) acc[c.region].inPipeline += 1
     if (c.monday_created_at && c.monday_created_at >= since24h) acc[c.region].newLast24h += 1
   }
 
