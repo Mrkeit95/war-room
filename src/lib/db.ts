@@ -930,17 +930,17 @@ export async function getBoardSummary(): Promise<{ boards: BoardSummaryRow[]; to
   ])
   type SumRow = { board_name: string; running_sales: number | null; projection: number | null; goal: number | null; active_count: number | null; up_count: number | null; down_count: number | null; ratio: number | null; subs_pct: number | null; mom_pct: number | null; pct_to_goal: number | null; sub_revenue: number | null }
 
-  // Compute live per-board totals from page_board_map. Sum running_sales for
-  // ACTIVE pages only — the rev tracker's per-board running totals also count
-  // only the active roster, so including inactive pages here inflated the
-  // numbers (e.g. BOARD 1 had 4 inactive pages adding $221k of phantom revenue).
+  // Compute live per-board totals from page_board_map. "Active" means anything
+  // not explicitly marked FALSE — blank/NULL checkboxes are counted as active
+  // because the rev tracker's per-board totals do the same (matches the
+  // operator's expected page counts).
   type LiveRow = { runningSum: number; activeCount: number }
   const live = new Map<string, LiveRow>()
   for (const board of BOARD_DISPLAY_ORDER) live.set(board, { runningSum: 0, activeCount: 0 })
   for (const r of (pagesRes.data ?? []) as { board_name: string; running_sales: number | null; active: boolean | null }[]) {
     const slot = live.get(r.board_name)
     if (!slot) continue
-    if (r.active === true) {
+    if (r.active !== false) {
       slot.runningSum += (r.running_sales ?? 0)
       slot.activeCount += 1
     }
@@ -1011,29 +1011,31 @@ export type TopCreator = {
 
 export async function getTopCreators(limit = 5): Promise<TopCreator[]> {
   const supabase = createAdminClient()
+  // "Active" = not explicitly FALSE — matches the per-board count rule.
   const { data, error } = await supabase
     .from('page_board_map')
-    .select('page_name, board_name, running_sales, agency')
-    .eq('active', true)
+    .select('page_name, board_name, running_sales, agency, active')
     .not('running_sales', 'is', null)
     .order('running_sales', { ascending: false })
-    .limit(limit)
+    .limit(limit * 3)            // over-fetch so we can drop FALSE rows post-query
   if (error) throw new Error(`getTopCreators: ${error.message}`)
-  return ((data ?? []) as { page_name: string; board_name: string; running_sales: number | null; agency: string | null }[])
+  return ((data ?? []) as { page_name: string; board_name: string; running_sales: number | null; agency: string | null; active: boolean | null }[])
+    .filter(r => r.active !== false)
+    .slice(0, limit)
     .map(r => ({ pageName: r.page_name, boardName: r.board_name, runningSales: r.running_sales, agency: r.agency }))
 }
 
 /**
- * "Active creators" matches the rev tracker's Active column — pages marked
- * active=TRUE in the spreadsheet. Different from `current_stage = 'active'`
- * on candidates (which is hires, not models).
+ * "Active creators" matches the rev tracker's Active column. We count
+ * anything not explicitly marked FALSE — blank checkboxes are treated as
+ * active. (Different from candidates.current_stage='active' which is hires.)
  */
 export async function getActiveCreatorCount(): Promise<number> {
   const supabase = createAdminClient()
   const { count, error } = await supabase
     .from('page_board_map')
     .select('id', { count: 'exact', head: true })
-    .eq('active', true)
+    .or('active.is.null,active.eq.true')
   if (error) throw new Error(`getActiveCreatorCount: ${error.message}`)
   return count ?? 0
 }
