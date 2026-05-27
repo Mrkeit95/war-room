@@ -3,8 +3,8 @@ import BriefingReminders from '@/components/BriefingReminders'
 import CandidateLink from '@/components/CandidateLink'
 import {
   getBriefingData, getCurrentAlerts, getLastSyncedAt,
-  getDepartmentMovements, getRecentMovements,
-  type Alert, type BriefingCandidate, type DepartmentMovement, type RecentMovement,
+  getDepartmentMovements, getRecentMovements, getManagerActivity,
+  type Alert, type BriefingCandidate, type DepartmentMovement, type RecentMovement, type ManagerActivity,
 } from '@/lib/db'
 import { tierDisplay, type Region } from '@/lib/candidates'
 import { getOnboardingSnapshot, type OnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
@@ -20,15 +20,17 @@ export default async function BriefingPage() {
   let onboarding: OnboardingSnapshot | null = null
   let departments: DepartmentMovement[] = []
   let movements: RecentMovement[] = []
+  let managers: ManagerActivity[] = []
   let error: string | null = null
   try {
-    ;[data, lastSyncedAt, alerts, onboarding, departments, movements] = await Promise.all([
+    ;[data, lastSyncedAt, alerts, onboarding, departments, movements, managers] = await Promise.all([
       getBriefingData(),
       getLastSyncedAt(),
       getCurrentAlerts(),
       getOnboardingSnapshot().catch(() => null),
       getDepartmentMovements().catch(() => []),
       getRecentMovements(12).catch(() => []),
+      getManagerActivity().catch(() => []),
     ])
   } catch (err) {
     error = err instanceof Error ? err.message : String(err)
@@ -79,50 +81,70 @@ export default async function BriefingPage() {
 
       {data && (
         <>
-          {/* Standby SLA — most operationally urgent, surfaces first */}
-          {standbyAlerts.length > 0 && (
-            <Section title="Standby — needs page assignment today">
-              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
-                {standbyAlerts.length} {standbyAlerts.length === 1 ? 'chatter is' : 'chatters are'} on standby with no BOARD assigned. They&apos;ll quit if they sit too long.
-                {' '}<Link href="/standby" style={{ color: 'var(--text-3)' }}>See all →</Link>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {standbyAlerts.slice(0, 10).map((a, i) => (
-                  <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
-                ))}
-                {standbyAlerts.length > 10 && (
-                  <Link href="/standby" style={{
-                    fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', padding: '8px 0',
-                    fontStyle: 'italic', textDecoration: 'none', display: 'block',
-                    borderRadius: 6, background: 'var(--surface)',
-                  }}>
-                    +{standbyAlerts.length - 10} more on /standby →
-                  </Link>
-                )}
-              </div>
-            </Section>
-          )}
+          {/* Standby SLA */}
+          {standbyAlerts.length > 0 && (() => {
+            const critical = standbyAlerts.filter(a => a.severity === 'critical').length
+            const warning = standbyAlerts.filter(a => a.severity === 'warning').length
+            const summary = [
+              critical > 0 ? `${critical} critical` : null,
+              warning > 0 ? `${warning} warning` : null,
+            ].filter(Boolean).join(' · ')
+            return (
+              <Accordion title="Standby — needs page assignment" summary={summary} accent={critical > 0 ? 'var(--red)' : 'var(--amber)'}>
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+                  {standbyAlerts.length} {standbyAlerts.length === 1 ? 'chatter is' : 'chatters are'} on standby with no BOARD assigned. They&apos;ll quit if they sit too long.
+                  {' '}<Link href="/standby" style={{ color: 'var(--text-3)' }}>See all →</Link>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {standbyAlerts.slice(0, 10).map((a, i) => (
+                    <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
+                  ))}
+                  {standbyAlerts.length > 10 && (
+                    <Link href="/standby" style={{
+                      fontSize: 11.5, color: 'var(--text-3)', textAlign: 'center', padding: '8px 0',
+                      fontStyle: 'italic', textDecoration: 'none', display: 'block',
+                      borderRadius: 6, background: 'var(--surface-2)',
+                    }}>
+                      +{standbyAlerts.length - 10} more on /standby →
+                    </Link>
+                  )}
+                </div>
+              </Accordion>
+            )
+          })()}
 
-          {/* Model onboarding — pages starting soon that aren't scheduled yet */}
-          {unscheduledOnboardings.length > 0 && (
-            <Section title="Onboarding — pages starting soon, no schedule yet">
-              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
-                {unscheduledOnboardings.length} {unscheduledOnboardings.length === 1 ? 'page is' : 'pages are'} launching within 7 days but not on the chatter schedule.{' '}
-                <Link href="/onboarding" style={{ color: 'var(--text-3)' }}>See all →</Link>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {unscheduledOnboardings.map((u, i) => (
-                  <OnboardingRow key={u.model.id} model={u.model} severity={u.severity} num={String(i + 1).padStart(2, '0')} />
-                ))}
-              </div>
-            </Section>
-          )}
+          {/* Onboarding alerts */}
+          {unscheduledOnboardings.length > 0 && (() => {
+            const critical = unscheduledOnboardings.filter(u => u.severity === 'critical').length
+            const warning = unscheduledOnboardings.filter(u => u.severity === 'warning').length
+            const summary = [
+              critical > 0 ? `${critical} critical` : null,
+              warning > 0 ? `${warning} warning` : null,
+            ].filter(Boolean).join(' · ')
+            return (
+              <Accordion title="Onboarding — pages with no schedule" summary={summary} accent={critical > 0 ? 'var(--red)' : 'var(--amber)'}>
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+                  {unscheduledOnboardings.length} {unscheduledOnboardings.length === 1 ? 'page is' : 'pages are'} launching within 7 days but not on the chatter schedule.{' '}
+                  <Link href="/onboarding" style={{ color: 'var(--text-3)' }}>See all →</Link>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {unscheduledOnboardings.map((u, i) => (
+                    <OnboardingRow key={u.model.id} model={u.model} severity={u.severity} num={String(i + 1).padStart(2, '0')} />
+                  ))}
+                </div>
+              </Accordion>
+            )
+          })()}
 
-          {/* Coverage status — surface the deficit if we're short */}
+          {/* Onboarding coverage */}
           {onboarding && (onboarding.shortBy > 0 || onboarding.models.length > 0) && (
-            <Section title="Onboarding coverage">
+            <Accordion
+              title="Onboarding coverage"
+              summary={onboarding.shortBy > 0 ? `short ${onboarding.shortBy} chatter${onboarding.shortBy === 1 ? '' : 's'}` : 'covered'}
+              accent={onboarding.shortBy > 0 ? 'var(--red)' : 'var(--green)'}
+            >
               <div style={{
-                background: 'var(--surface)',
+                background: 'var(--surface-2)',
                 border: `1px solid ${onboarding.shortBy > 0 ? 'rgba(239,68,68,0.22)' : 'var(--border)'}`,
                 borderRadius: 10, padding: '14px 18px',
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
@@ -137,23 +159,23 @@ export default async function BriefingPage() {
                   ) : (
                     <>
                       <strong style={{ color: 'var(--green)' }}>Covered.</strong>
-                      {' '}{onboarding.availableStandby} on standby, {onboarding.totalStillNeeded} still needed for upcoming pages.
+                      {' '}{onboarding.availableStandby} on standby, {onboarding.totalStillNeeded} still needed.
                     </>
                   )}
                 </div>
                 <Link href="/onboarding" style={{
                   fontSize: 11.5, padding: '6px 12px', borderRadius: 6,
-                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  background: 'var(--surface-3)', border: '1px solid var(--border)',
                   color: 'var(--text-2)', textDecoration: 'none', whiteSpace: 'nowrap',
                 }}>Open onboarding →</Link>
               </div>
-            </Section>
+            </Accordion>
           )}
 
-          {/* PTO 2-week rule */}
+          {/* PTO */}
           {ptoAlerts.length > 0 && (
-            <Section title="Personal Time Off — decision time">
-              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+            <Accordion title="Personal Time Off — decision time" summary={`${ptoAlerts.length} overdue`} accent="var(--amber)">
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
                 {ptoAlerts.length} {ptoAlerts.length === 1 ? 'person has' : 'people have'} been in PTO for 2+ weeks. Time to let go.
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -161,50 +183,126 @@ export default async function BriefingPage() {
                   <AlertRow key={a.id} alert={a} num={String(i + 1).padStart(2, '0')} />
                 ))}
               </div>
-            </Section>
+            </Accordion>
           )}
 
-          {/* The numbers */}
-          <Section title="The numbers">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-              <NumberCard value={data.newLast24h} label="New (24h)" />
-              <NumberCard value={data.interviews} label="In interviews" href="/?interviews=1" />
-              <NumberCard value={data.atRiskTotal} label="At risk" color="var(--red)" href="/at-risk" />
-              <NumberCard value={data.topTierTotal} label="Top tier" color="var(--green)" href="/top-performers" />
-            </div>
-          </Section>
+          {/* The numbers — expanded with 24h + now snapshot */}
+          {(() => {
+            const totals = departments.reduce(
+              (acc, d) => ({
+                inPipeline: acc.inPipeline + d.inPipeline,
+                newLast24h: acc.newLast24h + d.newLast24h,
+                transitions24h: acc.transitions24h + d.transitions24h,
+                enteredTraining: acc.enteredTraining + d.enteredTraining24h,
+                enteredStandby: acc.enteredStandby + d.enteredStandby24h,
+                enteredActive: acc.enteredActive + d.enteredActive24h,
+                offboarded: acc.offboarded + d.offboarded24h,
+              }),
+              { inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining: 0, enteredStandby: 0, enteredActive: 0, offboarded: 0 },
+            )
+            const summary = `+${totals.newLast24h} new · ${totals.transitions24h} changes (24h)`
+            return (
+              <Accordion title="The numbers" summary={summary}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+                  <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--text-4)', fontWeight: 600, marginBottom: 12 }}>Pipeline now</div>
+                    <StatLine label="In pipeline" value={totals.inPipeline} />
+                    <StatLine label="In interviews" value={data.interviews} href="/?interviews=1" />
+                    <StatLine label="In training (Tier 1–2)" value={data.atRiskInTraining.length} color="var(--amber)" />
+                    <StatLine label="Top tier" value={data.topTierTotal} color="var(--green)" href="/top-performers" />
+                    <StatLine label="At risk total" value={data.atRiskTotal} color="var(--red)" href="/at-risk" last />
+                  </div>
+                  <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--text-4)', fontWeight: 600, marginBottom: 12 }}>Last 24h</div>
+                    <StatLine label="New candidates" value={totals.newLast24h} prefix="+" color="var(--green)" />
+                    <StatLine label="Entered training" value={totals.enteredTraining} prefix="↑" color="var(--blue)" />
+                    <StatLine label="Entered standby" value={totals.enteredStandby} prefix="→" color="var(--violet)" />
+                    <StatLine label="Entered active" value={totals.enteredActive} prefix="✓" color="var(--green)" />
+                    <StatLine label="Offboarded" value={totals.offboarded} prefix="−" color="var(--red)" last />
+                  </div>
+                </div>
+              </Accordion>
+            )
+          })()}
 
-          {/* Departments — per-region 24h activity */}
-          {departments.length > 0 && (
-            <Section title="Departments — last 24h">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {departments.map(d => (
-                  <DepartmentRow key={d.region} dept={d} />
-                ))}
-              </div>
-            </Section>
-          )}
+          {/* Departments */}
+          {departments.length > 0 && (() => {
+            const summary = departments.map(d => `${d.region} ${d.inPipeline}`).join(' · ')
+            return (
+              <Accordion title="Departments" summary={summary}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {departments.map(d => <DepartmentRow key={d.region} dept={d} />)}
+                </div>
+              </Accordion>
+            )
+          })()}
 
-          {/* Recent movements — what actually happened */}
+          {/* Managers — per-person 24h activity */}
+          {managers.length > 0 && (() => {
+            const active = managers.filter(m => m.transitions24h > 0 || m.newLast24h > 0).length
+            const totalChanges = managers.reduce((s, m) => s + m.transitions24h, 0)
+            return (
+              <Accordion title="Managers — last 24h" summary={`${active} active · ${totalChanges} change${totalChanges === 1 ? '' : 's'}`}>
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+                  Who moved what yesterday, by manager. <Link href="/managers" style={{ color: 'var(--text-3)' }}>Open managers →</Link>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {managers.map(m => <ManagerRow key={m.name} manager={m} />)}
+                </div>
+              </Accordion>
+            )
+          })()}
+
+          {/* Training board — pulled from Allyson + training stages */}
+          {(() => {
+            const trainingTransitions = departments.reduce((s, d) => s + d.enteredTraining24h, 0)
+            const standbyFromTraining = departments.reduce((s, d) => s + d.enteredStandby24h, 0)
+            const activeFromTraining = departments.reduce((s, d) => s + d.enteredActive24h, 0)
+            const allysonActivity = managers.find(m => m.name === 'Allyson Sam')
+            const summary = `+${trainingTransitions} entered · ${data.atRiskInTraining.length} at risk`
+            return (
+              <Accordion title="Training board" summary={summary} accent={data.atRiskInTraining.length > 0 ? 'var(--amber)' : undefined}>
+                <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--text-4)', fontWeight: 600, marginBottom: 10 }}>Training flow · 24h</div>
+                  <StatLine label="Entered training" value={trainingTransitions} prefix="↑" color="var(--blue)" />
+                  <StatLine label="Moved training → standby" value={standbyFromTraining} prefix="→" color="var(--violet)" />
+                  <StatLine label="Moved training → active" value={activeFromTraining} prefix="✓" color="var(--green)" />
+                  <StatLine label="At-risk currently in training" value={data.atRiskInTraining.length} color="var(--amber)" last />
+                </div>
+                {allysonActivity && (allysonActivity.transitions24h > 0 || allysonActivity.candidatesAssigned > 0) && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.18em', color: 'var(--text-4)', fontWeight: 600, marginBottom: 8 }}>Allyson Sam · Head of Training</div>
+                    <ManagerRow manager={allysonActivity} />
+                  </div>
+                )}
+              </Accordion>
+            )
+          })()}
+
+          {/* Recent movements */}
           {movements.length > 0 && (
-            <Section title="Recent movements">
-              <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+            <Accordion title="Recent movements" summary={`${movements.length} change${movements.length === 1 ? '' : 's'}`}>
+              <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
                 Last {movements.length} stage change{movements.length === 1 ? '' : 's'} across the org. <Link href="/activity" style={{ color: 'var(--text-3)' }}>Full log →</Link>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {movements.map(m => <MovementRow key={m.id} movement={m} />)}
               </div>
-            </Section>
+            </Accordion>
           )}
 
-          {/* Worth your attention */}
-          <Section title="Worth your attention today">
+          {/* At risk in training */}
+          <Accordion
+            title="At risk in training"
+            summary={data.atRiskInTraining.length === 0 ? 'none' : `${data.atRiskInTraining.length} candidate${data.atRiskInTraining.length === 1 ? '' : 's'}`}
+            accent={data.atRiskInTraining.length > 0 ? 'var(--amber)' : undefined}
+          >
             {data.atRiskInTraining.length === 0 ? (
               <Empty>No at-risk candidates currently in training. Nothing flagged.</Empty>
             ) : (
               <>
-                <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
-                  {data.atRiskInTraining.length} Tier 1–2 {data.atRiskInTraining.length === 1 ? 'candidate is' : 'candidates are'} in training right now — they need a closer look before they slip.
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+                  {data.atRiskInTraining.length} Tier 1–2 {data.atRiskInTraining.length === 1 ? 'candidate is' : 'candidates are'} in training — closer look before they slip.
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {data.atRiskInTraining.map((c, i) => (
@@ -213,10 +311,14 @@ export default async function BriefingPage() {
                 </div>
               </>
             )}
-          </Section>
+          </Accordion>
 
           {/* Top tier */}
-          <Section title="Top tier — recognize them">
+          <Accordion
+            title="Top tier — recognize them"
+            summary={data.topTier.length === 0 ? `${data.topTierTotal} total` : `${data.topTier.length} Tier 4`}
+            accent={data.topTier.length > 0 ? 'var(--green)' : undefined}
+          >
             {data.topTier.length === 0 ? (
               <Empty>
                 No Tier 4 candidates in the pipeline right now.
@@ -224,7 +326,7 @@ export default async function BriefingPage() {
               </Empty>
             ) : (
               <>
-                <div style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
                   {data.topTier.length} {data.topTier.length === 1 ? 'candidate is' : 'candidates are'} at the top tier — worth a word of recognition.
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -234,7 +336,7 @@ export default async function BriefingPage() {
                 </div>
               </>
             )}
-          </Section>
+          </Accordion>
         </>
       )}
 
@@ -282,6 +384,64 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </div>
   )
+}
+
+function Accordion({ title, summary, accent, defaultOpen, children }: { title: string; summary?: string; accent?: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  return (
+    <details open={defaultOpen} style={{ marginBottom: 10 }}>
+      <summary style={{
+        cursor: 'pointer',
+        padding: '14px 18px',
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        listStyle: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 14,
+      }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          {accent && <span style={{ width: 4, height: 16, background: accent, borderRadius: 2, flexShrink: 0 }} />}
+          <Caret />
+          <span style={{ fontSize: 13.5, fontWeight: 500 }}>{title}</span>
+        </span>
+        {summary && (
+          <span style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'monospace', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {summary}
+          </span>
+        )}
+      </summary>
+      <div style={{ padding: '14px 4px 6px' }}>
+        {children}
+      </div>
+    </details>
+  )
+}
+
+function Caret() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 10, height: 10, color: 'var(--text-3)', flexShrink: 0 }}>
+      <polyline points="9 18 15 12 9 6"/>
+    </svg>
+  )
+}
+
+function StatLine({ label, value, color, prefix, href, last }: { label: string; value: number; color?: string; prefix?: string; href?: string; last?: boolean }) {
+  const body = (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '7px 0',
+      borderBottom: last ? 'none' : '1px solid var(--border)',
+      cursor: href ? 'pointer' : 'default',
+    }}>
+      <div style={{ fontSize: 12.5, color: 'var(--text-2)' }}>{label}</div>
+      <div style={{ fontFamily: 'monospace', fontSize: 13.5, fontWeight: 600, color: color || 'var(--text)' }}>
+        {prefix ? <span style={{ color, marginRight: 2 }}>{prefix}</span> : null}{value.toLocaleString()}
+      </div>
+    </div>
+  )
+  return href ? <Link href={href} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>{body}</Link> : body
 }
 
 function NumberCard({ value, label, color, href }: { value: number; label: string; color?: string; href?: string }) {
@@ -382,6 +542,36 @@ function timeAgo(iso: string): string {
 function prettyStage(stage: string | null): string {
   if (!stage) return 'new'
   return stage.replace(/_/g, ' ')
+}
+
+function ManagerRow({ manager }: { manager: ManagerActivity }) {
+  const hasActivity = manager.transitions24h > 0 || manager.newLast24h > 0
+  return (
+    <Link href={`/managers?focus=${encodeURIComponent(manager.name)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        padding: '10px 14px',
+        display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr) auto', alignItems: 'center', gap: 14,
+        cursor: 'pointer',
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.displayName}</div>
+          <div style={{ fontSize: 11, color: 'var(--text-4)', fontFamily: 'monospace', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{manager.role}</div>
+        </div>
+        <div style={{ fontSize: 11.5, color: hasActivity ? 'var(--text-3)' : 'var(--text-4)', fontFamily: 'monospace', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {manager.newLast24h > 0 && <span><span style={{ color: 'var(--green)' }}>+{manager.newLast24h}</span> new</span>}
+          {manager.enteredTraining24h > 0 && <span><span style={{ color: 'var(--blue)' }}>↑{manager.enteredTraining24h}</span> training</span>}
+          {manager.enteredStandby24h > 0 && <span><span style={{ color: 'var(--violet)' }}>→{manager.enteredStandby24h}</span> standby</span>}
+          {manager.enteredActive24h > 0 && <span><span style={{ color: 'var(--green)' }}>✓{manager.enteredActive24h}</span> active</span>}
+          {manager.offboarded24h > 0 && <span><span style={{ color: 'var(--red)' }}>−{manager.offboarded24h}</span> off</span>}
+          {!hasActivity && <span style={{ fontStyle: 'italic' }}>no activity</span>}
+        </div>
+        <div style={{ fontSize: 10.5, color: 'var(--text-4)', fontFamily: 'monospace', textAlign: 'right' }}>
+          {manager.candidatesAssigned.toLocaleString()} assigned
+        </div>
+      </div>
+    </Link>
+  )
 }
 
 function MovementRow({ movement }: { movement: RecentMovement }) {

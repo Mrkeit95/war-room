@@ -616,6 +616,123 @@ export type RecentMovement = {
   detectedAt: string
 }
 
+export type ManagerActivity = {
+  name: string
+  displayName: string
+  role: string                       // "PH Recruiter", "EU Head", "AE · BOARD 1", "Training Head", etc.
+  candidatesAssigned: number         // current count of in-pipeline candidates assigned to them
+  newLast24h: number
+  transitions24h: number
+  enteredTraining24h: number
+  enteredStandby24h: number
+  enteredActive24h: number
+  offboarded24h: number
+}
+
+// Configured roster: the people we care about reporting on. Anyone outside this
+// list isn't surfaced even if they appear in assigned_manager.
+type RosterEntry = { monManager: string; displayName: string; role: string; sortGroup: number }
+
+function getManagerRoster(): RosterEntry[] {
+  return [
+    // Hiring / recruiting
+    { monManager: 'Pauline', displayName: 'Pauline', role: 'PH Recruiting', sortGroup: 0 },
+    { monManager: 'Daireen Mae Dagatan', displayName: 'Daireen Mae Dagatan', role: 'PH Recruiting', sortGroup: 0 },
+    { monManager: 'apple baez', displayName: 'Apple Baez', role: 'PH Recruiting', sortGroup: 0 },
+    // PH section leads
+    { monManager: 'Andrei Angelo Cando', displayName: 'Andrei Angelo Cando', role: 'PH · Week 1', sortGroup: 1 },
+    { monManager: 'Jose Manuel Galan', displayName: 'Jose Manuel Galan', role: 'PH · Week 1', sortGroup: 1 },
+    { monManager: 'Arjay Labado', displayName: 'Arjay Labado', role: 'PH · Week 2 / TB', sortGroup: 1 },
+    { monManager: 'Pamela Amuro Miña', displayName: 'Pamela Amuro Miña', role: 'PH · Week 2 / TB', sortGroup: 1 },
+    { monManager: 'Prince Ellesor Torres', displayName: 'Prince Ellesor Torres', role: 'PH · Week 3-4 / TB', sortGroup: 1 },
+    { monManager: 'Gwyneth Fuentes', displayName: 'Gwyneth Fuentes', role: 'PH · Week 3-4 / TB', sortGroup: 1 },
+    // Training head
+    { monManager: 'Allyson Sam', displayName: 'Allyson Sam', role: 'Head of Training', sortGroup: 2 },
+    // AEs
+    { monManager: 'Day Quintero', displayName: 'Day Quintero', role: 'AE · BOARD 1', sortGroup: 3 },
+    { monManager: 'Angie Toro', displayName: 'Angie Toro', role: 'AE · BOARD 2', sortGroup: 3 },
+    { monManager: 'Iori Vukotic', displayName: 'Iori Vukotic', role: 'AE · BOARD 3', sortGroup: 3 },
+    // Regional heads
+    { monManager: 'Aleksandar Simic', displayName: 'Aleksandar Simic', role: 'EU Head', sortGroup: 4 },
+    { monManager: 'JUAN SEBASTIAN GONZALEZ PEREZ', displayName: 'Juan Sebastian Gonzalez Perez', role: 'SA Head', sortGroup: 4 },
+    { monManager: 'noah whall', displayName: 'Noah Whall', role: 'UK Head', sortGroup: 4 },
+  ]
+}
+
+export async function getManagerActivity(): Promise<ManagerActivity[]> {
+  const supabase = createAdminClient()
+  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const roster = getManagerRoster()
+
+  // Quick lookup from any-cased Monday manager string → roster entry.
+  const lookup = new Map<string, RosterEntry>()
+  for (const r of roster) lookup.set(r.monManager.toLowerCase(), r)
+
+  // Initialise per-manager accumulator.
+  const acc = new Map<string, ManagerActivity>()
+  for (const r of roster) {
+    acc.set(r.monManager, {
+      name: r.monManager,
+      displayName: r.displayName,
+      role: r.role,
+      candidatesAssigned: 0,
+      newLast24h: 0,
+      transitions24h: 0,
+      enteredTraining24h: 0,
+      enteredStandby24h: 0,
+      enteredActive24h: 0,
+      offboarded24h: 0,
+    })
+  }
+
+  // 1. Current assignments + new-in-24h.
+  type Cand = { assigned_manager: string | null; current_stage: CanonicalStage; monday_created_at: string | null }
+  const cands = await fetchAllPaged<Cand>((from, to) =>
+    supabase.from('candidates')
+      .select('assigned_manager, current_stage, monday_created_at')
+      .neq('current_stage', 'offboarded')
+      .range(from, to),
+  )
+  for (const c of cands) {
+    if (!c.assigned_manager) continue
+    const r = lookup.get(c.assigned_manager.toLowerCase())
+    if (!r) continue
+    const entry = acc.get(r.monManager)!
+    entry.candidatesAssigned += 1
+    if (c.monday_created_at && c.monday_created_at >= since24h) entry.newLast24h += 1
+  }
+
+  // 2. 24h transitions joined to candidates.assigned_manager.
+  const { data: transRaw, error: tErr } = await supabase
+    .from('stage_transitions')
+    .select('to_stage, candidates!inner(assigned_manager)')
+    .gte('detected_at', since24h)
+  if (tErr) throw new Error(`getManagerActivity (transitions): ${tErr.message}`)
+  for (const row of (transRaw ?? []) as { to_stage: CanonicalStage; candidates: { assigned_manager: string | null } | { assigned_manager: string | null }[] }[]) {
+    const cand = Array.isArray(row.candidates) ? row.candidates[0] : row.candidates
+    if (!cand?.assigned_manager) continue
+    const r = lookup.get(cand.assigned_manager.toLowerCase())
+    if (!r) continue
+    const entry = acc.get(r.monManager)!
+    entry.transitions24h += 1
+    if (row.to_stage === 'offboarded') entry.offboarded24h += 1
+    const b = uiBucket(row.to_stage)
+    if (b === 'training') entry.enteredTraining24h += 1
+    else if (b === 'standby') entry.enteredStandby24h += 1
+    else if (b === 'active') entry.enteredActive24h += 1
+  }
+
+  // Sort: active (most transitions) first within group, then by sortGroup
+  const rosterByName = new Map(roster.map(r => [r.monManager, r] as const))
+  return [...acc.values()].sort((a, b) => {
+    const ga = rosterByName.get(a.name)?.sortGroup ?? 99
+    const gb = rosterByName.get(b.name)?.sortGroup ?? 99
+    if (ga !== gb) return ga - gb
+    if (b.transitions24h !== a.transitions24h) return b.transitions24h - a.transitions24h
+    return a.displayName.localeCompare(b.displayName)
+  })
+}
+
 export async function getRecentMovements(limit = 12): Promise<RecentMovement[]> {
   const supabase = createAdminClient()
   const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
