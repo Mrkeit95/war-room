@@ -3,8 +3,8 @@ import BriefingReminders from '@/components/BriefingReminders'
 import CandidateLink from '@/components/CandidateLink'
 import {
   getBriefingData, getCurrentAlerts, getLastSyncedAt,
-  getDepartmentMovements, getRecentMovements, getManagerActivity,
-  type Alert, type BriefingCandidate, type DepartmentMovement, type RecentMovement, type ManagerActivity,
+  getDepartmentMovements, getRecentMovements, getManagerActivity, getStageDeltas,
+  type Alert, type BriefingCandidate, type DepartmentMovement, type RecentMovement, type ManagerActivity, type StageDelta,
 } from '@/lib/db'
 import { tierDisplay, type Region } from '@/lib/candidates'
 import { getOnboardingSnapshot, type OnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
@@ -21,9 +21,10 @@ export default async function BriefingPage() {
   let departments: DepartmentMovement[] = []
   let movements: RecentMovement[] = []
   let managers: ManagerActivity[] = []
+  let stageDeltas: StageDelta[] = []
   let error: string | null = null
   try {
-    ;[data, lastSyncedAt, alerts, onboarding, departments, movements, managers] = await Promise.all([
+    ;[data, lastSyncedAt, alerts, onboarding, departments, movements, managers, stageDeltas] = await Promise.all([
       getBriefingData(),
       getLastSyncedAt(),
       getCurrentAlerts(),
@@ -31,6 +32,7 @@ export default async function BriefingPage() {
       getDepartmentMovements().catch(() => []),
       getRecentMovements(12).catch(() => []),
       getManagerActivity().catch(() => []),
+      getStageDeltas(1).catch(() => []),
     ])
   } catch (err) {
     error = err instanceof Error ? err.message : String(err)
@@ -232,6 +234,33 @@ export default async function BriefingPage() {
               <Accordion title="Departments" summary={summary}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {departments.map(d => <DepartmentRow key={d.region} dept={d} />)}
+                </div>
+              </Accordion>
+            )
+          })()}
+
+          {/* Stage movement — day-over-day deltas per (region, stage) */}
+          {stageDeltas.length > 0 && (() => {
+            const drops = stageDeltas.filter(d => d.delta < 0)
+            const biggestDrop = drops.reduce((min, d) => Math.min(min, d.delta), 0)
+            const totalDrop = drops.reduce((s, d) => s + d.delta, 0)
+            const summary = drops.length > 0
+              ? `${drops.length} stage${drops.length === 1 ? '' : 's'} dropped (${totalDrop})`
+              : `${stageDeltas.length} change${stageDeltas.length === 1 ? '' : 's'}`
+            return (
+              <Accordion title="Stage movement — vs yesterday" summary={summary} accent={biggestDrop <= -5 ? 'var(--red)' : biggestDrop < 0 ? 'var(--amber)' : undefined}>
+                <div style={{ fontSize: 13, color: 'var(--text-3)', marginBottom: 12, lineHeight: 1.5 }}>
+                  How each stage&apos;s headcount shifted overnight. Drops mean people left the stage — either moved forward or dropped out.
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {stageDeltas.slice(0, 20).map((d, i) => (
+                    <StageDeltaRow key={`${d.region}-${d.stage}-${i}`} delta={d} />
+                  ))}
+                  {stageDeltas.length > 20 && (
+                    <div style={{ fontSize: 11.5, color: 'var(--text-4)', fontStyle: 'italic', textAlign: 'center', padding: '6px 0' }}>
+                      +{stageDeltas.length - 20} more smaller changes
+                    </div>
+                  )}
                 </div>
               </Accordion>
             )
@@ -542,6 +571,50 @@ function timeAgo(iso: string): string {
 function prettyStage(stage: string | null): string {
   if (!stage) return 'new'
   return stage.replace(/_/g, ' ')
+}
+
+function StageDeltaRow({ delta }: { delta: StageDelta }) {
+  const region = REGION_LABEL[delta.region]
+  const isDrop = delta.delta < 0
+  const isBigDrop = delta.delta <= -5
+  const deltaColor = isBigDrop ? 'var(--red)' : isDrop ? 'var(--amber)' : 'var(--green)'
+  const sign = delta.delta > 0 ? '+' : ''
+  // Link to the segment modal so the operator can drill into who's in there now.
+  const segment = `${delta.region.toLowerCase()}:${uiBucketForStage(delta.stage)}`
+  return (
+    <Link href={`/?segment=${encodeURIComponent(segment)}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        padding: '10px 14px',
+        display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr) auto auto', alignItems: 'center', gap: 14,
+        cursor: 'pointer',
+        borderLeft: isBigDrop ? '2px solid var(--red)' : isDrop ? '2px solid var(--amber)' : '2px solid var(--green)',
+      }}>
+        <div style={{ fontSize: 13, lineHeight: 1, width: 18, textAlign: 'center' }}>{region.flag}</div>
+        <div style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{delta.groupTitle}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--text-3)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+          {delta.yesterdayCount} → {delta.todayCount}
+        </div>
+        <div style={{ fontFamily: 'monospace', fontSize: 13, fontWeight: 700, color: deltaColor, whiteSpace: 'nowrap', minWidth: 44, textAlign: 'right' }}>
+          {sign}{delta.delta}
+        </div>
+      </div>
+    </Link>
+  )
+}
+
+// Map canonical stage → UI bucket for /?segment= deep link
+function uiBucketForStage(stage: string): string {
+  switch (stage) {
+    case 'typeform': return 'typeform'
+    case 'passed_typeform': return 'passed'
+    case 'pending_interview': return 'pending'
+    case 'scheduled_interview': case 'pending_onboarding': case 'pending_week_1': return 'scheduled'
+    case 'week_1_training': case 'week_2_training': case 'week_3_training': case 'training_board': return 'training'
+    case 'pool': case 'standby': return 'standby'
+    case 'active': case 'promoted': case 'pto': return 'active'
+    default: return 'all'
+  }
 }
 
 function ManagerRow({ manager }: { manager: ManagerActivity }) {

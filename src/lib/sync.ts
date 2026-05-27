@@ -176,6 +176,31 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       pageAssignmentsSynced = rows.length
     }
 
+    // Daily pipeline snapshot — write today's per-(region, stage) counts so we
+    // can show day-over-day deltas in the briefing. Upserts on (date, region,
+    // stage) so multiple syncs in the same day overwrite cleanly.
+    {
+      const todayUtc = new Date().toISOString().slice(0, 10)
+      const counts = new Map<string, number>()
+      for (const r of rowsToUpsert) {
+        const region = r.region as string
+        const stage = r.current_stage as string
+        if (!region || !stage || stage === 'offboarded') continue
+        const k = `${region}|${stage}`
+        counts.set(k, (counts.get(k) ?? 0) + 1)
+      }
+      const snapshotRows = [...counts.entries()].map(([k, count]) => {
+        const [region, stage] = k.split('|')
+        return { snapshot_date: todayUtc, region, stage, candidate_count: count }
+      })
+      if (snapshotRows.length > 0) {
+        const { error: snapErr } = await supabase
+          .from('pipeline_snapshots')
+          .upsert(snapshotRows, { onConflict: 'snapshot_date,region,stage' })
+        if (snapErr) warnings.push(`Pipeline snapshot upsert failed: ${snapErr.message}`)
+      }
+    }
+
     // Per-AE board layouts → authoritative pod/team → board mapping.
     let boardGroupsSynced = 0
     if (boardLayouts.length > 0) {

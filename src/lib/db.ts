@@ -606,6 +606,80 @@ export async function getDepartmentMovements(): Promise<DepartmentMovement[]> {
   return REGIONS.map(r => acc[r])
 }
 
+export type StageDelta = {
+  region: Region
+  stage: CanonicalStage
+  groupTitle: string                // pretty label for display ("WEEK 1 TRAINING")
+  yesterdayCount: number
+  todayCount: number
+  delta: number                     // today - yesterday
+}
+
+const PRETTY_STAGE: Record<CanonicalStage, string> = {
+  typeform: 'Typeform',
+  passed_typeform: 'Passed typeform',
+  pending_interview: 'Pending interview',
+  scheduled_interview: 'Scheduled interview',
+  pending_onboarding: 'Pending onboarding',
+  pending_week_1: 'Pending Week 1',
+  week_1_training: 'Week 1 training',
+  week_2_training: 'Week 2 training',
+  week_3_training: 'Week 3-4 training',
+  training_board: 'Training board',
+  pool: 'Pool (after week 2)',
+  standby: 'Standby',
+  active: 'Active',
+  promoted: 'Promoted',
+  pto: 'PTO',
+  offboarded: 'Offboarded',
+}
+
+/**
+ * Per-(region, stage) change between yesterday's snapshot and today's. Only
+ * returns stages where the count actually moved (|delta| >= minDelta). The
+ * sync writes a fresh snapshot every run so "today" is the latest known count.
+ */
+export async function getStageDeltas(minDelta = 1): Promise<StageDelta[]> {
+  const supabase = createAdminClient()
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  type Row = { region: Region; stage: CanonicalStage; candidate_count: number }
+  const [todayRes, yesterdayRes] = await Promise.all([
+    supabase.from('pipeline_snapshots').select('region, stage, candidate_count').eq('snapshot_date', today),
+    supabase.from('pipeline_snapshots').select('region, stage, candidate_count').eq('snapshot_date', yesterday),
+  ])
+  const todayRows = (todayRes.data ?? []) as Row[]
+  const yesterdayRows = (yesterdayRes.data ?? []) as Row[]
+
+  const yMap = new Map<string, number>()
+  for (const r of yesterdayRows) yMap.set(`${r.region}|${r.stage}`, r.candidate_count)
+  const tMap = new Map<string, number>()
+  for (const r of todayRows) tMap.set(`${r.region}|${r.stage}`, r.candidate_count)
+
+  const keys = new Set<string>([...yMap.keys(), ...tMap.keys()])
+  const deltas: StageDelta[] = []
+  for (const k of keys) {
+    const [region, stage] = k.split('|') as [Region, CanonicalStage]
+    const todayCount = tMap.get(k) ?? 0
+    const yesterdayCount = yMap.get(k) ?? 0
+    const delta = todayCount - yesterdayCount
+    if (Math.abs(delta) < minDelta) continue
+    deltas.push({
+      region, stage,
+      groupTitle: PRETTY_STAGE[stage] ?? stage,
+      yesterdayCount, todayCount, delta,
+    })
+  }
+  // Sort: biggest absolute movement first, with drops surfacing above gains of same magnitude.
+  deltas.sort((a, b) => {
+    const abs = Math.abs(b.delta) - Math.abs(a.delta)
+    if (abs !== 0) return abs
+    return a.delta - b.delta
+  })
+  return deltas
+}
+
 export type RecentMovement = {
   id: string
   candidateId: string
