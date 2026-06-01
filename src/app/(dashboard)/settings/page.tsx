@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import ReplicateGradingButton from './ReplicateGradingButton'
 
 type SectionKey = 'general' | 'account' | 'alerts' | 'dashboard' | 'integrations' | 'advanced'
 
@@ -134,6 +135,9 @@ export default function SettingsPage() {
             <Section title="Advanced" desc="Destructive actions.">
               <Field label="Export all data"><Button ghost>Export</Button></Field>
               <Field label="Resync everything"><Button ghost>Resync</Button></Field>
+              <Field label="Replicate grading columns to EU / SA / UK" sub="Copies PH's grading column structure (parent + subitem) to the other region boards. Idempotent.">
+                <ReplicateGradingButton />
+              </Field>
               <Field label="Sign out everywhere"><Button danger>Sign out all sessions</Button></Field>
             </Section>
           )}

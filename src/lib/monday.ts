@@ -414,6 +414,114 @@ export async function setStatusColumnValue(boardId: string, itemId: string, colu
   })
 }
 
+// ---------------------------------------------------------------------------
+// Column replication — for copying the grading column structure across boards
+// ---------------------------------------------------------------------------
+
+export type ColumnDetail = { id: string; title: string; type: string; settings_str: string | null }
+
+export async function fetchBoardColumnsDetailed(boardId: string): Promise<ColumnDetail[]> {
+  const query = `
+    query ($boardId: ID!) {
+      boards(ids: [$boardId]) {
+        columns { id title type settings_str }
+      }
+    }
+  `
+  type Resp = { boards: [{ columns: ColumnDetail[] }] }
+  const data = await mondayGraphQL<Resp>(query, { boardId })
+  return data.boards[0]?.columns ?? []
+}
+
+/**
+ * Create a new column on a board. For status/dropdown/numeric/rating/people/etc.
+ * defaultsJson is the JSON-serialised settings object — usually copied verbatim
+ * from a source column's settings_str when replicating.
+ */
+export async function createColumn(args: {
+  boardId: string
+  title: string
+  columnType: string                // 'status' | 'dropdown' | 'numeric' | 'rating' | 'people' | 'long_text' | ...
+  defaultsJson?: string | null      // settings to pass through, or null
+}): Promise<{ id: string; title: string }> {
+  const query = `
+    mutation ($boardId: ID!, $title: String!, $columnType: ColumnType!, $defaults: JSON) {
+      create_column(board_id: $boardId, title: $title, column_type: $columnType, defaults: $defaults) {
+        id
+        title
+      }
+    }
+  `
+  type Resp = { create_column: { id: string; title: string } }
+  const data = await mondayGraphQL<Resp>(query, {
+    boardId: args.boardId,
+    title: args.title,
+    columnType: args.columnType,
+    defaults: args.defaultsJson ?? null,
+  })
+  return data.create_column
+}
+
+/**
+ * Get the subitem board id for a main board, if any. Monday creates a parallel
+ * "sub-board" the first time a subitem is added; before that, there's no id.
+ */
+export async function getSubitemBoardId(mainBoardId: string): Promise<string | null> {
+  // Strategy: the `subtasks` (or `subitems`) column on the main board stores
+  // the subitem board id in its settings_str as `boardIds`. If no such column
+  // or no boardIds, subitems aren't initialised yet.
+  const columns = await fetchBoardColumnsDetailed(mainBoardId)
+  const subCol = columns.find(c => c.type === 'subtasks' || c.type === 'subitems' || c.title?.toLowerCase() === 'subitems')
+  if (!subCol?.settings_str) return null
+  try {
+    const settings = JSON.parse(subCol.settings_str) as { boardIds?: (string | number)[] }
+    const first = settings.boardIds?.[0]
+    return first != null ? String(first) : null
+  } catch {
+    return null
+  }
+}
+
+/** Create one placeholder subitem on the first available item — used to initialise subitems on a fresh board. */
+export async function createPlaceholderSubitem(parentItemId: string, name = 'placeholder'): Promise<string | null> {
+  const query = `
+    mutation ($parentItemId: ID!, $itemName: String!) {
+      create_subitem(parent_item_id: $parentItemId, item_name: $itemName) { id }
+    }
+  `
+  try {
+    type Resp = { create_subitem: { id: string } }
+    const data = await mondayGraphQL<Resp>(query, { parentItemId, itemName: name })
+    return data.create_subitem.id
+  } catch {
+    return null
+  }
+}
+
+/** Find the first item on a board to use as a parent for the placeholder subitem. */
+export async function findFirstItemId(boardId: string): Promise<string | null> {
+  const query = `
+    query ($boardId: ID!) {
+      boards(ids: [$boardId]) {
+        items_page(limit: 1) { items { id } }
+      }
+    }
+  `
+  type Resp = { boards: [{ items_page: { items: { id: string }[] } }] }
+  const data = await mondayGraphQL<Resp>(query, { boardId })
+  return data.boards[0]?.items_page?.items?.[0]?.id ?? null
+}
+
+/** Delete an item (used to clean up the placeholder subitem after column replication). */
+export async function deleteItem(itemId: string): Promise<void> {
+  const query = `
+    mutation ($itemId: ID!) {
+      delete_item(item_id: $itemId) { id }
+    }
+  `
+  try { await mondayGraphQL(query, { itemId }) } catch { /* best-effort cleanup */ }
+}
+
 /**
  * Per-AE board layout. Each board's groups are named "POD A TEAM 1" — that's
  * the authoritative pod/team → board mapping. IDs are fixed (chat-stars
