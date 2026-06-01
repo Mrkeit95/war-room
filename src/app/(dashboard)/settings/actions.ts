@@ -165,3 +165,104 @@ function uniqueByTitle(cols: ColumnDetail[]): ColumnDetail[] {
   }
   return out
 }
+
+// ---------------------------------------------------------------------------
+// Verifier — compare EU/SA/UK to PH for the grading columns
+// ---------------------------------------------------------------------------
+
+export type ColumnDiff =
+  | { title: string; status: 'ok' }
+  | { title: string; status: 'missing' }
+  | { title: string; status: 'type-mismatch'; sourceType: string; targetType: string }
+  | { title: string; status: 'options-mismatch'; missingOptions: string[]; extraOptions: string[] }
+
+export type BoardDiff = {
+  board: string
+  parent: ColumnDiff[]
+  subitem: ColumnDiff[]
+  subitemBoardId: string | null
+}
+
+export type VerifyResult =
+  | { ok: true; perBoard: BoardDiff[] }
+  | { ok: false; error: string }
+
+export async function verifyGradingColumns(): Promise<VerifyResult> {
+  try {
+    const sourceBoardId = process.env.MONDAY_BOARD_ID_PH
+    const targets: { name: string; id: string | undefined }[] = [
+      { name: 'EU', id: process.env.MONDAY_BOARD_ID_EU },
+      { name: 'SA', id: process.env.MONDAY_BOARD_ID_SA },
+      { name: 'UK', id: process.env.MONDAY_BOARD_ID_UK },
+    ]
+    if (!sourceBoardId) return { ok: false, error: 'MONDAY_BOARD_ID_PH not set' }
+
+    const sourceMainCols = await fetchBoardColumnsDetailed(sourceBoardId)
+    const sourceSubBoardId = await getSubitemBoardId(sourceBoardId)
+    if (!sourceSubBoardId) return { ok: false, error: 'PH has no subitem board yet' }
+    const sourceSubCols = await fetchBoardColumnsDetailed(sourceSubBoardId)
+
+    const sourceParentCols = PARENT_GRADING_COLUMN_TITLES
+      .map(t => findColByTitle(sourceMainCols, t))
+      .filter((c): c is ColumnDetail => !!c)
+
+    const sourceSubitemCols = uniqueByTitle(
+      SUBITEM_GRADING_COLUMN_TITLES
+        .map(t => findColByTitle(sourceSubCols, t))
+        .filter((c): c is ColumnDetail => !!c),
+    )
+
+    const perBoard: BoardDiff[] = []
+    for (const t of targets) {
+      if (!t.id) { perBoard.push({ board: t.name, parent: [], subitem: [], subitemBoardId: null }); continue }
+      const targetMainCols = await fetchBoardColumnsDetailed(t.id)
+      const targetSubBoardId = await getSubitemBoardId(t.id)
+      const targetSubCols = targetSubBoardId ? await fetchBoardColumnsDetailed(targetSubBoardId) : []
+
+      const parentDiff = sourceParentCols.map(src => diffColumn(src, findColByTitle(targetMainCols, src.title)))
+      const subDiff = sourceSubitemCols.map(src => diffColumn(src, findColByTitle(targetSubCols, src.title)))
+
+      perBoard.push({ board: t.name, parent: parentDiff, subitem: subDiff, subitemBoardId: targetSubBoardId })
+    }
+
+    return { ok: true, perBoard }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+function diffColumn(src: ColumnDetail, target: ColumnDetail | undefined): ColumnDiff {
+  if (!target) return { title: src.title, status: 'missing' }
+  if (target.type !== src.type) {
+    return { title: src.title, status: 'type-mismatch', sourceType: src.type, targetType: target.type }
+  }
+  // For status/dropdown columns, compare option lists
+  if (src.type === 'status' || src.type === 'dropdown' || src.type === 'color') {
+    const srcOptions = parseColumnOptions(src.settings_str)
+    const targetOptions = parseColumnOptions(target.settings_str)
+    const srcSet = new Set(srcOptions.map(o => o.toLowerCase()))
+    const targetSet = new Set(targetOptions.map(o => o.toLowerCase()))
+    const missing = [...srcSet].filter(o => !targetSet.has(o))
+    const extra = [...targetSet].filter(o => !srcSet.has(o))
+    if (missing.length > 0 || extra.length > 0) {
+      return { title: src.title, status: 'options-mismatch', missingOptions: missing, extraOptions: extra }
+    }
+  }
+  return { title: src.title, status: 'ok' }
+}
+
+function parseColumnOptions(settingsStr: string | null): string[] {
+  if (!settingsStr) return []
+  try {
+    const s = JSON.parse(settingsStr)
+    // Status columns: {"labels": {"0": "Label A", "1": "Label B"}}
+    if (s.labels && typeof s.labels === 'object') {
+      return Object.values(s.labels) as string[]
+    }
+    // Dropdown columns: {"labels": [{"name": "..."}, ...]}
+    if (Array.isArray(s.labels)) {
+      return s.labels.map((l: { name?: string } | string) => typeof l === 'string' ? l : (l.name ?? '')).filter(Boolean)
+    }
+    return []
+  } catch { return [] }
+}
