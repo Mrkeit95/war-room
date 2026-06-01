@@ -44,6 +44,97 @@ const STAGES_BY_BUCKET: Record<string, CanonicalStage[]> = {
   active: ['active', 'promoted', 'pto'],
 }
 
+type GradeSummary = { composite: number | null; trajectory: 'up' | 'flat' | 'down' | null }
+
+async function fetchGradeSummaries(candidateIds: string[]): Promise<Map<string, GradeSummary>> {
+  const out = new Map<string, GradeSummary>()
+  if (candidateIds.length === 0) return out
+  const supabase = createAdminClient()
+  type Row = {
+    candidate_id: string
+    monday_updated_at: string | null
+    monday_created_at: string | null
+    ppv_captions: number | null
+    sexting_message_quality: number | null
+    hooks_opening_lines: number | null
+    reply_time: number | null
+    golden_ratio: number | null
+    persona_match: number | null
+    whale_handling: number | null
+    english_skills: number | null
+    reliability: number | null
+  }
+  // PostgREST in() has a cap, so chunk
+  const CHUNK = 200
+  const all: Row[] = []
+  for (let i = 0; i < candidateIds.length; i += CHUNK) {
+    const slice = candidateIds.slice(i, i + CHUNK)
+    const { data } = await supabase
+      .from('chatter_grades')
+      .select('candidate_id, monday_updated_at, monday_created_at, ppv_captions, sexting_message_quality, hooks_opening_lines, reply_time, golden_ratio, persona_match, whale_handling, english_skills, reliability')
+      .in('candidate_id', slice)
+    for (const r of (data ?? []) as Row[]) all.push(r)
+  }
+
+  // Group by candidate_id, sort by monday_updated_at desc
+  const byCand = new Map<string, Row[]>()
+  for (const r of all) {
+    const arr = byCand.get(r.candidate_id) ?? []
+    arr.push(r)
+    byCand.set(r.candidate_id, arr)
+  }
+  for (const [cid, rows] of byCand) {
+    rows.sort((a, b) => {
+      const aT = a.monday_updated_at ?? a.monday_created_at ?? ''
+      const bT = b.monday_updated_at ?? b.monday_created_at ?? ''
+      return bT.localeCompare(aT)
+    })
+    const latest = rows[0]
+    const prev = rows[1] ?? null
+    const c = compositeOfRow(latest)
+    const p = prev ? compositeOfRow(prev) : null
+    let trajectory: 'up' | 'flat' | 'down' | null = null
+    if (c !== null && p !== null) {
+      const d = c - p
+      trajectory = d >= 0.3 ? 'up' : d <= -0.3 ? 'down' : 'flat'
+    }
+    out.set(cid, { composite: c, trajectory })
+  }
+  return out
+}
+
+function compositeOfRow(r: {
+  ppv_captions: number | null; sexting_message_quality: number | null; hooks_opening_lines: number | null;
+  reply_time: number | null; golden_ratio: number | null; persona_match: number | null;
+  whale_handling: number | null; english_skills: number | null; reliability: number | null;
+}): number | null {
+  const vals = [
+    r.ppv_captions, r.sexting_message_quality, r.hooks_opening_lines, r.reply_time, r.golden_ratio,
+    r.persona_match, r.whale_handling, r.english_skills, r.reliability,
+  ].filter((v): v is number => typeof v === 'number')
+  if (vals.length === 0) return null
+  return vals.reduce((s, v) => s + v, 0) / vals.length
+}
+
+function gradeBadge(g: GradeSummary | undefined) {
+  if (!g || g.composite === null) return <span style={{ fontSize: 11, color: 'var(--text-4)' }}>—</span>
+  const c = g.composite
+  const color = c >= 4.5 ? 'var(--green)' : c >= 3.5 ? 'var(--blue)' : c >= 2.5 ? 'var(--amber)' : 'var(--red)'
+  const bg = c >= 4.5 ? 'rgba(74,222,128,0.12)' : c >= 3.5 ? 'rgba(96,165,250,0.12)' : c >= 2.5 ? 'rgba(251,191,36,0.12)' : 'rgba(239,68,68,0.12)'
+  const arrow = g.trajectory === 'up' ? '↑' : g.trajectory === 'down' ? '↓' : g.trajectory === 'flat' ? '→' : ''
+  return (
+    <div style={{
+      display: 'inline-flex', padding: '3px 8px', borderRadius: 5,
+      alignItems: 'center', gap: 4,
+      fontWeight: 700, fontSize: 11, fontFamily: 'monospace',
+      background: bg, color,
+    }}>
+      {c.toFixed(1)}
+      {arrow && <span style={{ fontSize: 9.5, opacity: 0.85 }}>{arrow}</span>}
+    </div>
+  )
+}
+
 async function fetchCandidates(filters: Filters): Promise<{ rows: Row[]; lastSyncedAt: string | null; totalCount: number } | { error: string }> {
   try {
     const supabase = createAdminClient()
@@ -128,6 +219,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
   }
 
   const { rows, lastSyncedAt, totalCount } = result
+  const grades = await fetchGradeSummaries(rows.map(r => r.id))
   const showing = rows.length
   const truncated = totalCount > showing
 
@@ -213,7 +305,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
             <thead>
               <tr>
                 {(() => {
-                  const headers = ['Tier', 'Name', 'Region', 'Stage', 'Manager', 'Bucket']
+                  const headers = ['Tier', 'Grade', 'Name', 'Region', 'Stage', 'Manager', 'Bucket']
                   if (filters.stage) headers.push(`Days in ${filters.stage.replace(/_/g, ' ')}`)
                   return headers.map(h => (
                     <th key={h} style={{ background: 'var(--surface-2)', padding: '12px 16px', textAlign: 'left', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--text-3)', fontWeight: 500, borderBottom: '1px solid var(--border)' }}>{h}</th>
@@ -230,6 +322,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
                 return (
                   <tr key={c.id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none' }}>
                     <td style={{ padding: '14px 16px' }}>{tierBadge(c.tier)}</td>
+                    <td style={{ padding: '14px 16px' }}>{gradeBadge(grades.get(c.id))}</td>
                     <td style={{ padding: '14px 16px', fontWeight: 500, fontSize: 13 }}>
                       <CandidateLink id={c.id}>{c.name}</CandidateLink>
                     </td>
