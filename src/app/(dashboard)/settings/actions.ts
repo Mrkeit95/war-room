@@ -3,12 +3,13 @@
 import {
   fetchBoardColumnsDetailed,
   createColumn,
-  getSubitemBoardId,
   createPlaceholderSubitem,
-  findFirstItemId,
   deleteItem,
+  findFirstItemId,
+  getSubitemBoardId,
   type ColumnDetail,
 } from '@/lib/monday'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // The columns we want present on every region board (parent + subitem).
 // Match against PH so any tweaks to PH's structure propagate automatically.
@@ -265,4 +266,103 @@ function parseColumnOptions(settingsStr: string | null): string[] {
     }
     return []
   } catch { return [] }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk-create monthly grading subitems on every active chatter
+// ---------------------------------------------------------------------------
+
+export type BulkSeedResult =
+  | { ok: true; subitemName: string; activeChattersFound: number; alreadySeeded: number; created: number; failed: number; failedSamples: string[] }
+  | { ok: false; error: string }
+
+function currentMonthLabel(d: Date = new Date()): string {
+  return d.toLocaleString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
+/**
+ * For every chatter currently in the ACTIVE Monday group, create one empty
+ * grading subitem named after the current month (e.g. "June 2026"). Skips any
+ * chatter who already has a subitem with that exact name this run, so it's
+ * safe to re-run.
+ *
+ * Why this is a one-click button instead of automatic: it writes to Monday,
+ * 400+ items at a time. The operator should be the one to pull the trigger.
+ */
+export async function bulkSeedMonthlyGradeSubitems(): Promise<BulkSeedResult> {
+  try {
+    const supabase = createAdminClient()
+    const subitemName = currentMonthLabel()
+
+    // 1. Active chatters — defined as current_group_title = 'ACTIVE' on Monday
+    //    (the cross-region pool). Use that rather than current_stage so we
+    //    match the exact roster the operator sees in the ACTIVE Monday group.
+    const PAGE = 1000
+    type C = { id: string; monday_item_id: string; name: string }
+    const all: C[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('id, monday_item_id, name')
+        .eq('current_group_title', 'ACTIVE')
+        .range(from, from + PAGE - 1)
+      if (error) return { ok: false, error: `Active chatter query failed: ${error.message}` }
+      if (!data || data.length === 0) break
+      all.push(...(data as C[]))
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    const activeChatters = all.filter(c => !!c.monday_item_id)
+
+    if (activeChatters.length === 0) {
+      return { ok: false, error: 'No active chatters found (current_group_title = "ACTIVE"). Sync first.' }
+    }
+
+    // 2. Idempotency — find chatters that already have a subitem named after
+    //    this month so we don't double-seed if re-run.
+    const parentIds = activeChatters.map(c => c.monday_item_id)
+    const alreadySeededSet = new Set<string>()
+    for (let i = 0; i < parentIds.length; i += 200) {
+      const slice = parentIds.slice(i, i + 200)
+      const { data } = await supabase
+        .from('chatter_grades')
+        .select('monday_parent_item_id, subitem_name')
+        .in('monday_parent_item_id', slice)
+        .eq('subitem_name', subitemName)
+      for (const r of (data ?? []) as { monday_parent_item_id: string }[]) {
+        alreadySeededSet.add(r.monday_parent_item_id)
+      }
+    }
+
+    const todo = activeChatters.filter(c => !alreadySeededSet.has(c.monday_item_id))
+
+    // 3. Create one subitem per chatter. Monday's rate limit on most plans is
+    //    high enough that 400+ serial calls run in ~10-20s. We don't parallelise
+    //    because we want any rate-limit errors to surface predictably.
+    let created = 0
+    let failed = 0
+    const failedSamples: string[] = []
+    for (const c of todo) {
+      const id = await createPlaceholderSubitem(c.monday_item_id, subitemName)
+      if (id) {
+        created += 1
+      } else {
+        failed += 1
+        if (failedSamples.length < 5) failedSamples.push(c.name)
+      }
+    }
+
+    return {
+      ok: true,
+      subitemName,
+      activeChattersFound: activeChatters.length,
+      alreadySeeded: alreadySeededSet.size,
+      created,
+      failed,
+      failedSamples,
+    }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import ReplicateGradingButton from './ReplicateGradingButton'
 import VerifyColumnsButton from './VerifyColumnsButton'
+import SeedSubitemsButton from './SeedSubitemsButton'
 
 type SectionKey = 'general' | 'account' | 'alerts' | 'dashboard' | 'integrations' | 'advanced'
 
@@ -141,6 +142,9 @@ export default function SettingsPage() {
               </Field>
               <Field label="Verify column parity" sub="Compare EU / SA / UK against PH and surface any missing columns, type mismatches, or differing dropdown options. Needed so chatter grades survive a board move.">
                 <VerifyColumnsButton />
+              </Field>
+              <Field label="Seed monthly grade subitems on active chatters" sub="One-click: creates a subitem named after the current month on every chatter in the ACTIVE Monday group, so managers don't have to click '+ Add subitem' on 400+ rows. Idempotent — skips chatters who already have one this month.">
+                <SeedSubitemsButton />
               </Field>
               <Field label="Sign out everywhere"><Button danger>Sign out all sessions</Button></Field>
             </Section>
