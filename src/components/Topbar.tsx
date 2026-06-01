@@ -1,7 +1,9 @@
 'use client'
 
+import { useState } from 'react'
 import { usePathname } from 'next/navigation'
 import TopbarSyncButton from './TopbarSyncButton'
+import AIAssistant from './AIAssistant'
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -24,6 +26,7 @@ const pageTitles: Record<string, string> = {
 export default function Topbar() {
   const pathname = usePathname()
   const title = pageTitles[pathname] || 'War Room'
+  const [aiOpen, setAiOpen] = useState(false)
 
   return (
     <div style={{
@@ -48,9 +51,29 @@ export default function Topbar() {
             }}
           />
         </div>
+        {/* AI Assistant trigger */}
+        <button
+          onClick={() => setAiOpen(true)}
+          title="Ask the War Room AI"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 7,
+            height: 34, padding: '0 11px', borderRadius: 8,
+            background: 'rgba(74,222,128,0.08)',
+            border: '1px solid rgba(74,222,128,0.22)',
+            color: 'var(--green)', fontFamily: 'inherit',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a7 7 0 0 1 7 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 0 1 7-7z"/>
+            <line x1="10" y1="22" x2="14" y2="22"/>
+          </svg>
+          Ask AI
+        </button>
         {/* Sync button — global, syncs everything */}
         <TopbarSyncButton />
       </div>
+      <AIAssistant open={aiOpen} onClose={() => setAiOpen(false)} />
     </div>
   )
 }
