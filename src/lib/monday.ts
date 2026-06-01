@@ -357,11 +357,14 @@ export async function fetchAllGradingSubitems(): Promise<{ region: RegionCode; s
 // Write-back helpers for parent grading columns
 // ---------------------------------------------------------------------------
 
-/** Set a Number column value on a Monday item. Value is the raw number as string. */
+/** Set a Number column value on a Monday item. Uses change_simple_column_value
+ *  which accepts the plain number as a string — more forgiving than the JSON
+ *  variant (works for both numeric and currency-style number columns).
+ */
 export async function setNumberColumnValue(boardId: string, itemId: string, columnId: string, value: number | null): Promise<void> {
   const query = `
-    mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
-      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) {
+    mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: String) {
+      change_simple_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) {
         id
       }
     }
@@ -370,7 +373,7 @@ export async function setNumberColumnValue(boardId: string, itemId: string, colu
     boardId,
     itemId,
     columnId,
-    value: JSON.stringify(value === null ? '' : String(value)),
+    value: value === null ? '' : String(value),
   })
 }
 

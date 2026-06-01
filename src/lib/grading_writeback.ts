@@ -91,14 +91,20 @@ export async function computeAndWriteBackGrades(
 
     // Look up column metadata on this board once.
     const allCols = await fetchBoardColumnsDetailed(boardId)
-    const chatterGradeCol = allCols.find(c => /^chatter\s*grade$/i.test(c.title))
-    const trajectoryCol = allCols.find(c => /^trajectory$/i.test(c.title))
-    const salesCol = allCols.find(c => /^sales\s*generated\s*\$?$/i.test(c.title))
+    const normalise = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const chatterGradeCol = allCols.find(c => normalise(c.title) === 'chattergrade')
+    const trajectoryCol = allCols.find(c => normalise(c.title) === 'trajectory')
+    const salesCol = allCols.find(c => normalise(c.title) === 'salesgenerated' || normalise(c.title) === 'salesgenerated$')
 
     if (!chatterGradeCol && !trajectoryCol && !salesCol) {
-      warnings.push(`Region ${region}: parent grading columns not found — skipping write-back`)
+      warnings.push(`Region ${region}: parent grading columns not found — skipping write-back. Columns on board: ${allCols.map(c => c.title).join(', ')}`)
       continue
     }
+    // Specifically flag the missing ones — the operator will see exactly which
+    // parent column is failing the lookup.
+    if (!salesCol) warnings.push(`Region ${region}: Sales Generated column not found. Columns: ${allCols.filter(c => /sales|gen|\$/i.test(c.title)).map(c => `"${c.title}" (${c.type})`).join(', ') || '(none matching)'}`)
+    if (!trajectoryCol) warnings.push(`Region ${region}: Trajectory column not found`)
+    if (!chatterGradeCol) warnings.push(`Region ${region}: Chatter Grade column not found`)
 
     const trajectoryLabels = trajectoryCol ? parseStatusLabels(trajectoryCol.settings_str) : []
     if (trajectoryCol && trajectoryLabels.length === 0) {
