@@ -12,6 +12,8 @@ export type SyncActionResult =
       candidatesSynced: number
       pageAssignmentsSynced: number
       boardGroupsSynced: number
+      chatterGradesSynced: number
+      gradesWrittenBack: number
       durationMs: number
       warnings: string[]
     }
@@ -28,6 +30,8 @@ export async function triggerSync(): Promise<SyncActionResult> {
       candidatesSynced: result.candidatesSynced,
       pageAssignmentsSynced: result.pageAssignmentsSynced,
       boardGroupsSynced: result.boardGroupsSynced,
+      chatterGradesSynced: result.chatterGradesSynced,
+      gradesWrittenBack: result.gradesWrittenBack,
       durationMs: result.durationMs,
       warnings: result.warnings,
     }

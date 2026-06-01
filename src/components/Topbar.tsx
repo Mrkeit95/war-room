@@ -1,6 +1,7 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import TopbarSyncButton from './TopbarSyncButton'
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -47,16 +48,8 @@ export default function Topbar() {
             }}
           />
         </div>
-        {/* Sync indicator */}
-        <div style={{
-          width: 34, height: 34, borderRadius: 8,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text-2)', cursor: 'pointer', position: 'relative',
-        }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{width:16,height:16}}><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-          <div style={{ position: 'absolute', top: 6, right: 6, width: 7, height: 7, background: 'var(--green)', borderRadius: '50%', border: '2px solid var(--canvas)' }} />
-        </div>
+        {/* Sync button — global, syncs everything */}
+        <TopbarSyncButton />
       </div>
     </div>
   )

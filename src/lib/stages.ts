@@ -37,6 +37,7 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
   'SCHEDULED- INTERVIEWS': 'scheduled_interview',
   'SCHEDULED INTERVIEWS': 'scheduled_interview',
   'SCHEDULED INTERVIEWS (EXP)': 'scheduled_interview',
+  'INVITED FOR INTERVIEW': 'scheduled_interview',
   'TRANSFERRED TO ALEKSANDAR (EXP)': 'offboarded',
 
   // Onboarding / pending-week-1
@@ -64,6 +65,7 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
   'POOL (AFTER WEEK 2)': 'pool',
   'STANDBY': 'standby',
   'STANDBY (EXP)': 'standby',
+  'STANDBY (Non Exp)': 'standby',
   'STANDBY (FROM TB)': 'standby',
 
   // Active / promoted / PTO

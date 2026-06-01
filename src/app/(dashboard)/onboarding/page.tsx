@@ -2,7 +2,6 @@ import Link from 'next/link'
 import { getOnboardingSnapshot, type ModelWithCapacity } from '@/lib/models'
 import { getLastSyncedAt } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
-import SyncButton from './SyncButton'
 import AssignmentLink from './AssignmentLink'
 import MarkActiveButton from './MarkActiveButton'
 
@@ -108,21 +107,16 @@ export default async function OnboardingPage() {
     })
     .filter((x): x is { model: ModelWithCapacity; severity: 'critical' | 'warning' } => x !== null)
 
-  const needsAttention = !diagnostics.envVarSet || diagnostics.modelsInDb === 0
-
   return (
     <div>
-      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Model onboarding</h1>
-          <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-            Pages still to onboard (start date today or later) · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
-            Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} models · {diagnostics.assignmentsInDb} shift rows ({diagnostics.assignmentsWithChatter} with chatters) in db
-          </div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Model onboarding</h1>
+        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+          Pages still to onboard (start date today or later) · capacity check against the global standby pool. Every $40k of revenue = 1 team of 4 chatters for 24h.
         </div>
-        <SyncButton subtle={!needsAttention} />
+        <div style={{ fontSize: 11.5, color: 'var(--text-4)', marginTop: 8, fontFamily: 'monospace' }}>
+          Last synced {timeAgo(diagnostics.lastSyncedAt)} · {diagnostics.modelsInDb} models · {diagnostics.assignmentsInDb} shift rows ({diagnostics.assignmentsWithChatter} with chatters) in db
+        </div>
       </div>
 
       {/* Diagnostic banner — only shows when something is clearly wrong */}

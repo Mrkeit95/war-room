@@ -1,7 +1,6 @@
 import Link from 'next/link'
 import { getBoardsBreakdown, slugifyBoard, type BoardEntry } from '@/lib/boards'
 import { BOARD_TO_AE } from '@/lib/manager_sections'
-import SyncButton from '@/app/(dashboard)/onboarding/SyncButton'
 import BoardsSearch from './BoardsSearch'
 
 export const dynamic = 'force-dynamic'
@@ -32,14 +31,11 @@ export default async function BoardsPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 28, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 24 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Boards</h1>
-          <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
-            {totals.pods} pods · {totals.pages} pages · {totals.chatters} chatters across the AE boards.
-          </div>
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: 6 }}>Boards</h1>
+        <div style={{ fontSize: 13.5, color: 'var(--text-3)' }}>
+          {totals.pods} pods · {totals.pages} pages · {totals.chatters} chatters across the AE boards.
         </div>
-        <SyncButton subtle />
       </div>
 
       <BoardsSearch boards={boards} />
