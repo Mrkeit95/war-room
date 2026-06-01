@@ -4,6 +4,7 @@ import { useState } from 'react'
 import ReplicateGradingButton from './ReplicateGradingButton'
 import VerifyColumnsButton from './VerifyColumnsButton'
 import SeedSubitemsButton from './SeedSubitemsButton'
+import UndoSeedButton from './UndoSeedButton'
 
 type SectionKey = 'general' | 'account' | 'alerts' | 'dashboard' | 'integrations' | 'advanced'
 
@@ -145,6 +146,9 @@ export default function SettingsPage() {
               </Field>
               <Field label="Seed monthly grade subitems on active chatters" sub="One-click: creates a subitem named after the current month on every chatter in the ACTIVE Monday group, so managers don't have to click '+ Add subitem' on 400+ rows. Idempotent — skips chatters who already have one this month.">
                 <SeedSubitemsButton />
+              </Field>
+              <Field label="Undo monthly seed" sub="Deletes every subitem on an active chatter whose name matches the current month. Use if seeding went wrong or you want to restart this month's grading clean.">
+                <UndoSeedButton />
               </Field>
               <Field label="Sign out everywhere"><Button danger>Sign out all sessions</Button></Field>
             </Section>

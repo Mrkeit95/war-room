@@ -681,14 +681,14 @@ export async function findFirstItemId(boardId: string): Promise<string | null> {
   return data.boards[0]?.items_page?.items?.[0]?.id ?? null
 }
 
-/** Delete an item (used to clean up the placeholder subitem after column replication). */
+/** Delete a Monday item. Throws on API error so callers can count failures. */
 export async function deleteItem(itemId: string): Promise<void> {
   const query = `
     mutation ($itemId: ID!) {
       delete_item(item_id: $itemId) { id }
     }
   `
-  try { await mondayGraphQL(query, { itemId }) } catch { /* best-effort cleanup */ }
+  await mondayGraphQL(query, { itemId })
 }
 
 /**

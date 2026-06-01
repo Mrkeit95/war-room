@@ -1,6 +1,7 @@
 'use server'
 
 import {
+  fetchAllSubitems,
   fetchBoardColumnsDetailed,
   createColumn,
   createPlaceholderSubitem,
@@ -139,7 +140,7 @@ export async function replicateGradingColumns(): Promise<ReplicateResult> {
       }
 
       // Clean up the placeholder subitem we created to initialise subitems.
-      if (placeholderSubitemId) await deleteItem(placeholderSubitemId)
+      if (placeholderSubitemId) try { await deleteItem(placeholderSubitemId) } catch {/* best-effort cleanup */}
 
       perBoard.push({ board: t.name, created, skipped, subitemBoardId: targetSubBoardId })
     }
@@ -364,5 +365,99 @@ export async function bulkSeedMonthlyGradeSubitems(): Promise<BulkSeedResult> {
     }
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Undo: delete this month's seeded subitems from every active chatter
+// ---------------------------------------------------------------------------
+
+export type UndoSeedResult =
+  | { ok: true; subitemName: string; deleted: number; failed: number; chattersTouched: number }
+  | { ok: false; error: string }
+
+/**
+ * Deletes every subitem on an active-chatter parent row whose name matches
+ * the current month label (e.g. "June 2026"). Targets exactly what
+ * bulkSeedMonthlyGradeSubitems creates, so re-running the seed after this
+ * cleanup gives a fresh single-subitem-per-chatter state.
+ *
+ * Also removes the corresponding rows from chatter_grades so the dashboard
+ * doesn't keep showing them until the next sync.
+ */
+export async function undoMonthlySubitemSeed(): Promise<UndoSeedResult> {
+  try {
+    const supabase = createAdminClient()
+    const subitemName = currentMonthLabel()
+    const phBoardId = process.env.MONDAY_BOARD_ID_PH
+    if (!phBoardId) return { ok: false, error: 'MONDAY_BOARD_ID_PH not set' }
+
+    // 1. Active chatters' parent item ids
+    const PAGE = 1000
+    type C = { monday_item_id: string }
+    const all: C[] = []
+    let from = 0
+    while (true) {
+      const { data, error } = await supabase
+        .from('candidates')
+        .select('monday_item_id')
+        .eq('current_group_title', 'ACTIVE')
+        .range(from, from + PAGE - 1)
+      if (error) return { ok: false, error: `Active chatter query failed: ${error.message}` }
+      if (!data || data.length === 0) break
+      all.push(...(data as C[]))
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    const activeParentIds = new Set(all.map(c => c.monday_item_id).filter(Boolean))
+    if (activeParentIds.size === 0) {
+      return { ok: false, error: 'No active chatters found' }
+    }
+
+    // 2. Pull every subitem on PH (where active chatters live), filter to
+    //    those owned by an active chatter AND whose name matches this month.
+    const allSubs = await fetchAllSubitems(phBoardId)
+    const matches = allSubs.filter(s => activeParentIds.has(s.parent_item_id) && s.name === subitemName)
+
+    if (matches.length === 0) {
+      return { ok: true, subitemName, deleted: 0, failed: 0, chattersTouched: 0 }
+    }
+
+    // 3. Delete each on Monday. deleteItem is best-effort (caught internally).
+    let deleted = 0
+    let failed = 0
+    const touchedParents = new Set<string>()
+    const deletedIds: string[] = []
+    for (const sub of matches) {
+      const beforeDel = await safeDelete(sub.id)
+      if (beforeDel) {
+        deleted += 1
+        touchedParents.add(sub.parent_item_id)
+        deletedIds.push(sub.id)
+      } else {
+        failed += 1
+      }
+    }
+
+    // 4. Clean up chatter_grades so the dashboard reflects the change immediately.
+    if (deletedIds.length > 0) {
+      for (let i = 0; i < deletedIds.length; i += 500) {
+        const slice = deletedIds.slice(i, i + 500)
+        await supabase.from('chatter_grades').delete().in('monday_item_id', slice)
+      }
+    }
+
+    return { ok: true, subitemName, deleted, failed, chattersTouched: touchedParents.size }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+async function safeDelete(itemId: string): Promise<boolean> {
+  try {
+    await deleteItem(itemId)
+    return true
+  } catch {
+    return false
   }
 }
