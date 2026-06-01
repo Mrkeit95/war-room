@@ -13,7 +13,7 @@
  *   - Column ids are looked up per-board once and cached for the call.
  */
 
-import { findColumnId, setNumberColumnValue, setStatusColumnValue, type ParsedGrade } from './monday'
+import { findColumnId, fetchBoardColumnsDetailed, setNumberColumnValue, setStatusColumnValue, type ParsedGrade } from './monday'
 
 type Region = 'PH' | 'EU' | 'SA' | 'UK'
 
@@ -35,12 +35,47 @@ function composite(g: ParsedGrade): number | null {
   return vals.reduce((s, v) => s + v, 0) / vals.length
 }
 
-function trajectoryLabel(latest: number, prev: number | null): string {
-  if (prev === null) return '→ Flat'
+type TrajectoryDirection = 'up' | 'flat' | 'down'
+
+function trajectoryDirection(latest: number, prev: number | null): TrajectoryDirection {
+  if (prev === null) return 'flat'
   const delta = latest - prev
-  if (delta >= 0.3) return '↑ Up'
-  if (delta <= -0.3) return '↓ Down'
-  return '→ Flat'
+  if (delta >= 0.3) return 'up'
+  if (delta <= -0.3) return 'down'
+  return 'flat'
+}
+
+/**
+ * Match a TrajectoryDirection to the actual labels configured on a Monday
+ * Status column so we don't have to assume the operator named them "↑ Up"
+ * exactly. Picks the first label that contains the direction keyword.
+ */
+function matchTrajectoryLabel(direction: TrajectoryDirection, labels: string[]): string | null {
+  const keywords: Record<TrajectoryDirection, string[]> = {
+    up: ['up', '↑', 'rising', 'improving'],
+    flat: ['flat', '→', 'stable', 'unchanged'],
+    down: ['down', '↓', 'falling', 'declining'],
+  }
+  const wanted = keywords[direction]
+  for (const label of labels) {
+    const lower = label.toLowerCase()
+    if (wanted.some(k => lower.includes(k))) return label
+  }
+  return null
+}
+
+function parseStatusLabels(settingsStr: string | null): string[] {
+  if (!settingsStr) return []
+  try {
+    const s = JSON.parse(settingsStr)
+    if (s.labels && typeof s.labels === 'object' && !Array.isArray(s.labels)) {
+      return Object.values(s.labels) as string[]
+    }
+    if (Array.isArray(s.labels)) {
+      return s.labels.map((l: { name?: string } | string) => typeof l === 'string' ? l : (l.name ?? '')).filter(Boolean)
+    }
+    return []
+  } catch { return [] }
 }
 
 export async function computeAndWriteBackGrades(
@@ -54,16 +89,20 @@ export async function computeAndWriteBackGrades(
     const boardId = process.env[REGION_BOARD_ENV[region]]
     if (!boardId) continue
 
-    // Look up column ids on this board once.
-    const [chatterGradeColId, trajectoryColId, salesColId] = await Promise.all([
-      findColumnId(boardId, 'Chatter Grade').catch(() => null),
-      findColumnId(boardId, 'Trajectory').catch(() => null),
-      findColumnId(boardId, 'Sales Generated $').catch(() => null),
-    ])
+    // Look up column metadata on this board once.
+    const allCols = await fetchBoardColumnsDetailed(boardId)
+    const chatterGradeCol = allCols.find(c => /^chatter\s*grade$/i.test(c.title))
+    const trajectoryCol = allCols.find(c => /^trajectory$/i.test(c.title))
+    const salesCol = allCols.find(c => /^sales\s*generated\s*\$?$/i.test(c.title))
 
-    if (!chatterGradeColId && !trajectoryColId && !salesColId) {
+    if (!chatterGradeCol && !trajectoryCol && !salesCol) {
       warnings.push(`Region ${region}: parent grading columns not found — skipping write-back`)
       continue
+    }
+
+    const trajectoryLabels = trajectoryCol ? parseStatusLabels(trajectoryCol.settings_str) : []
+    if (trajectoryCol && trajectoryLabels.length === 0) {
+      warnings.push(`Region ${region}: Trajectory column has no labels configured`)
     }
 
     // Group subitems by parent (chatter)
@@ -89,22 +128,49 @@ export async function computeAndWriteBackGrades(
 
       const prevComp = prev ? composite(prev) : null
 
-      try {
-        if (chatterGradeColId) {
-          await setNumberColumnValue(boardId, parentItemId, chatterGradeColId, Number(latestComp.toFixed(2)))
+      // Each write is independent. A failure on one column doesn't block the others.
+      let anyWrote = false
+
+      if (chatterGradeCol) {
+        try {
+          await setNumberColumnValue(boardId, parentItemId, chatterGradeCol.id, Number(latestComp.toFixed(2)))
+          anyWrote = true
+        } catch (err) {
+          warnings.push(`[${region} ${parentItemId}] Chatter Grade write failed: ${errMsg(err)}`)
         }
-        if (trajectoryColId) {
-          await setStatusColumnValue(boardId, parentItemId, trajectoryColId, trajectoryLabel(latestComp, prevComp))
-        }
-        if (salesColId && latest.sales_generated_dollars !== null) {
-          await setNumberColumnValue(boardId, parentItemId, salesColId, latest.sales_generated_dollars)
-        }
-        writeCount += 1
-      } catch (err) {
-        warnings.push(`Write-back failed for ${region} item ${parentItemId}: ${err instanceof Error ? err.message : String(err)}`)
       }
+
+      if (trajectoryCol) {
+        const direction = trajectoryDirection(latestComp, prevComp)
+        const label = matchTrajectoryLabel(direction, trajectoryLabels)
+        if (!label) {
+          warnings.push(`[${region}] Trajectory: no label matches "${direction}". Configured: ${trajectoryLabels.join(', ') || '(none)'}`)
+        } else {
+          try {
+            await setStatusColumnValue(boardId, parentItemId, trajectoryCol.id, label)
+            anyWrote = true
+          } catch (err) {
+            warnings.push(`[${region} ${parentItemId}] Trajectory write failed: ${errMsg(err)}`)
+          }
+        }
+      }
+
+      if (salesCol && latest.sales_generated_dollars !== null) {
+        try {
+          await setNumberColumnValue(boardId, parentItemId, salesCol.id, latest.sales_generated_dollars)
+          anyWrote = true
+        } catch (err) {
+          warnings.push(`[${region} ${parentItemId}] Sales Generated $ write failed: ${errMsg(err)}`)
+        }
+      }
+
+      if (anyWrote) writeCount += 1
     }
   }
 
   return writeCount
+}
+
+function errMsg(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
