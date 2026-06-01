@@ -9,7 +9,12 @@ import {
   getLastSyncedAt,
   getRecentMovements,
   listCandidates,
+  getStaleCandidates,
+  getStageDeltas,
+  getManagerActivity,
+  getDepartmentMovements,
 } from '@/lib/db'
+import type { Region } from '@/lib/candidates'
 import { displayName, PH_SECTION_MANAGERS, GROUP_ORDER, OVERSEERS, BOARD_TO_AE } from '@/lib/manager_sections'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -33,6 +38,7 @@ function pctStr(n: number | null | undefined): string {
 
 async function buildContext(): Promise<string> {
   const supabase = createAdminClient()
+  const regions: Region[] = ['PH', 'EU', 'SA', 'UK']
   const [
     stats,
     briefing,
@@ -44,6 +50,13 @@ async function buildContext(): Promise<string> {
     recentMoves,
     allCandidates,
     pagesRes,
+    deptMovements,
+    stageDeltas,
+    managerActivity,
+    stalePH,
+    staleEU,
+    staleSA,
+    staleUK,
   ] = await Promise.all([
     getDashboardStats(),
     getBriefingData(),
@@ -52,13 +65,21 @@ async function buildContext(): Promise<string> {
     getTopCreators(10),
     getActiveCreatorCount(),
     getLastSyncedAt(),
-    getRecentMovements(20),
-    listCandidates({}),
+    getRecentMovements(40),
+    listCandidates({ limit: 5000 }),
     supabase.from('page_board_map')
       .select('page_name, board_name, running_sales, goal, active, agency, pod_label, manager')
       .order('running_sales', { ascending: false, nullsFirst: false })
       .limit(500),
+    getDepartmentMovements(),
+    getStageDeltas(1),
+    getManagerActivity(),
+    getStaleCandidates('PH', 5, 50),
+    getStaleCandidates('EU', 5, 50),
+    getStaleCandidates('SA', 5, 50),
+    getStaleCandidates('UK', 5, 50),
   ])
+  const staleByRegion: Record<Region, typeof stalePH> = { PH: stalePH, EU: staleEU, SA: staleSA, UK: staleUK }
 
   const lines: string[] = []
   lines.push('═══ WAR ROOM LIVE STATE ═══')
@@ -68,7 +89,6 @@ async function buildContext(): Promise<string> {
 
   // Pipeline by region × bucket
   lines.push('─── PIPELINE (counts by region × stage) ───')
-  const regions: Array<'PH' | 'EU' | 'SA' | 'UK'> = ['PH', 'EU', 'SA', 'UK']
   const buckets = ['typeform', 'passed', 'pending', 'scheduled', 'training', 'standby', 'active'] as const
   lines.push(`region  | ${buckets.map(b => b.padEnd(9)).join(' ')} | off`)
   for (const r of regions) {
@@ -155,6 +175,49 @@ async function buildContext(): Promise<string> {
   }
   lines.push('')
 
+  // Department-level movements (per region)
+  lines.push('─── DEPARTMENT MOVEMENTS (24h) ───')
+  lines.push('region | inPipeline | new24h | trans24h | →training | →standby | →active | offboarded')
+  for (const d of deptMovements) {
+    lines.push(`${d.region} | ${d.inPipeline} | ${d.newLast24h} | ${d.transitions24h} | ${d.enteredTraining24h} | ${d.enteredStandby24h} | ${d.enteredActive24h} | ${d.offboarded24h}`)
+  }
+  lines.push('')
+
+  // Stage-level movements (where things flowed yesterday → today)
+  if (stageDeltas.length > 0) {
+    lines.push(`─── STAGE DELTAS (yesterday → today, |Δ|≥1) ───`)
+    for (const d of stageDeltas.slice(0, 40)) {
+      const sign = d.delta > 0 ? '+' : ''
+      lines.push(`${d.region} · ${d.groupTitle}: ${d.yesterdayCount} → ${d.todayCount} (${sign}${d.delta})`)
+      if (d.enteredStage.length > 0) lines.push(`    entered: ${d.enteredStage.map(e => `${e.name} (from ${e.fromStage ?? '∅'})`).join(', ')}`)
+      if (d.leftStage.length > 0) lines.push(`    left: ${d.leftStage.map(e => `${e.name} (to ${e.toStage})`).join(', ')}`)
+    }
+    lines.push('')
+  }
+
+  // Manager activity (productivity)
+  lines.push(`─── MANAGER ACTIVITY (24h, configured roster only) ───`)
+  lines.push('manager | role | assigned | new24h | trans24h | →training | →standby | →active | offboarded')
+  for (const m of managerActivity) {
+    lines.push(`${m.displayName} | ${m.role} | ${m.candidatesAssigned} | ${m.newLast24h} | ${m.transitions24h} | ${m.enteredTraining24h} | ${m.enteredStandby24h} | ${m.enteredActive24h} | ${m.offboarded24h}`)
+    if (m.enteredTrainingNames.length > 0) lines.push(`    → training: ${m.enteredTrainingNames.join(', ')}`)
+    if (m.enteredActiveNames.length > 0) lines.push(`    → active: ${m.enteredActiveNames.join(', ')}`)
+    if (m.offboardedNames.length > 0) lines.push(`    offboarded: ${m.offboardedNames.join(', ')}`)
+  }
+  lines.push('')
+
+  // Stale candidates (stuck in pipeline)
+  lines.push(`─── STALE CANDIDATES (≥5 days since Monday update, by region) ───`)
+  for (const r of regions) {
+    const list = staleByRegion[r]
+    if (list.length === 0) continue
+    lines.push(`${r}: ${list.length} stale`)
+    for (const c of list) {
+      lines.push(`  · ${c.name} | ${c.current_group_title ?? c.current_stage} | tier=${c.tier ?? '—'} | mgr=${c.assigned_manager ?? '—'} | ${c.daysSinceUpdate}d idle`)
+    }
+  }
+  lines.push('')
+
   // Org structure reference
   lines.push('─── ORG STRUCTURE ───')
   lines.push('Overseers / leadership:')
@@ -210,21 +273,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reply: `Couldn't load War Room data: ${(e as Error).message}` }, { status: 500 })
   }
 
-  const system = `You are the AI operations assistant inside The War Room, the dashboard Keit Dmitrijev uses to run a multi-region OnlyFans chat agency (PH, EU, SA, UK). You have the entire current state of the War Room below.
+  const system = `You are Keit Dmitrijev's chief-of-staff analyst inside The War Room — the operating system for his multi-region OnlyFans chat agency (PH, EU, SA, UK). You have the FULL current state of the War Room below. Your job is to be the analyst who actually tells him what to do, not the assistant that hedges.
 
 ${context}
 
+WHO YOU ARE
+You are an opinionated operator. Keit hired you to think for him on this business. He's already got people who say "it depends" — he needs someone who reads the room, identifies who's slipping, who's winning, where the bottlenecks are, and makes specific calls. You speak in recommendations, not disclaimers.
+
+WHAT YOU SHOULD DO PROACTIVELY
+- Flag people who should be FIRED / offboarded (tier 1 stuck in advanced training, idle too long, low manager engagement, dragging the team). Name them.
+- Flag people who should be PROMOTED / moved (tier 4 in training who are ready for active, top performers underused, candidates ready to graduate).
+- Flag MANAGERS who are underperforming (low transitions, lots of stale candidates assigned to them, weak tier distribution under them).
+- Flag BOARDS that are dropping (% to goal slipping, ratio sliding, top creators leaving).
+- Surface BOTTLENECKS (stages where candidates pile up, regions stalling).
+- Make REVENUE PROJECTIONS based on running-sales vs days remaining in the month.
+- Call out PATTERNS — same manager keeps producing weak candidates? Same agency keeps producing winners? Say it.
+- When asked open-ended things ("how are we doing"), give a real assessment with a verdict, not a data dump.
+
 ANSWERING RULES
-- Use the data above as ground truth. Do not invent names, numbers, stages, or managers.
-- "Where is X?" → look up X in the candidate directory or pages list and report region, stage, manager, tier (and revenue if a page).
-- "Who's at risk?" or "Who needs attention?" → use the open alerts and the at-risk-in-training list.
-- "How are the boards doing?" → use the Revenue Boards section.
-- "What changed?" or "what's new?" → use Last 24 Hours + Recent Stage Movements.
-- For any aggregate question (counts, sums), recompute from the data above; show your inputs briefly so the operator can sanity-check.
-- Tier scale is inverted: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.
-- Be concise. Use short bullets, not paragraphs. Format currency as $1,234.
-- If the answer truly isn't in the data, say so directly — do not guess.
-- Format references to candidates as plain text, not links.`
+- The data above IS ground truth. Use it. Don't invent names, numbers, stages, or relationships.
+- BUT — be FUZZY on user input. If Keit types "Sebastien" and the directory has "Juan Sebastian Gonzalez Perez," that's the same person (English vs French spelling, partial name, casual nickname → match it). Same goes for "Andrei" matching "Andrei Angelo Cando", "Pamela" matching "Pamela Amuro Miña", etc. ALWAYS attempt a partial/fuzzy match on names before saying "not found".
+- The ORG STRUCTURE section is the source of truth for who is a manager. Juan Sebastian Gonzalez Perez (SA Head), Aleksandar Simic (EU Head), Noah Whall (UK Head), and the PH section managers ARE managers even if they don't appear elsewhere — never say "no such manager" if they're in the org structure.
+- "Where is X?" → fuzzy-match the name. Report region, stage, manager, tier (and revenue if a page). If X is a manager, report their role, what region/section they own, and how their team is performing.
+- For aggregates, recompute from the data; show 1-2 numbers as proof so Keit can sanity-check, then give your verdict.
+- Tier scale is INVERTED: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.
+- Active checkbox: blank = active. Only FALSE means inactive.
+- Be concise. Short bullets, not paragraphs. Format currency as $1,234. Lead with the answer, then the reasoning.
+- When you make a recommendation, name names and give a one-line reason. Don't list "considerations."
+- If the data genuinely doesn't support an answer (and fuzzy-matching fails), say so in one line — don't pad.
+- Format references to candidates as plain text, not links.
+
+YOUR DEFAULT POSTURE: confident, specific, action-oriented. Keit is paying you to tell him what he should do. Tell him.`
 
   const apiMessages = body.messages.slice(-12).map(m => ({ role: m.role, content: m.content }))
 
