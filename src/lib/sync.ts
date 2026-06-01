@@ -6,15 +6,18 @@
 import { createAdminClient } from './supabase/admin'
 import {
   fetchAllBoards,
+  fetchAllGradingSubitems,
   fetchBoardLayouts,
   fetchModelBoard,
   fetchPageAssignmentBoard,
   type ParsedBoardGroup,
+  type ParsedGrade,
   type ParsedItem,
   type ParsedModel,
   type ParsedPageAssignment,
 } from './monday'
 import { fetchRevenuePages, fetchBoardSummary, type RevenuePage, type BoardSummary } from './google_sheets'
+import { computeAndWriteBackGrades } from './grading_writeback'
 import { detectTrack, normalizeStage, type CanonicalStage } from './stages'
 
 export type SyncResult = {
@@ -25,6 +28,8 @@ export type SyncResult = {
   boardGroupsSynced: number
   pageBoardMapSynced: number
   boardSummarySynced: number
+  chatterGradesSynced: number
+  gradesWrittenBack: number
   transitionsRecorded: number
   durationMs: number
   fetchMs: number
@@ -48,7 +53,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
 
   try {
     const tFetch = Date.now()
-    const [boards, modelBoard, assignmentBoard, boardLayouts, revenuePages, boardSummary] = await Promise.all([
+    const [boards, modelBoard, assignmentBoard, boardLayouts, revenuePages, boardSummary, gradingSubitems] = await Promise.all([
       fetchAllBoards(),
       fetchModelBoard(),
       fetchPageAssignmentBoard(),
@@ -65,6 +70,10 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       fetchBoardSummary().catch(err => {
         warnings.push(`Board summary fetch failed: ${err instanceof Error ? err.message : String(err)}`)
         return [] as BoardSummary[]
+      }),
+      fetchAllGradingSubitems().catch(err => {
+        warnings.push(`Grading subitems fetch failed: ${err instanceof Error ? err.message : String(err)}`)
+        return [] as { region: 'PH' | 'EU' | 'SA' | 'UK'; subitems: ParsedGrade[] }[]
       }),
     ])
     const fetchMs = Date.now() - tFetch
@@ -274,6 +283,73 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       boardSummarySynced = rows.length
     }
 
+    // Chatter grading subitems → upsert into chatter_grades.
+    let chatterGradesSynced = 0
+    if (gradingSubitems.length > 0) {
+      const allRows: Record<string, unknown>[] = []
+      const parentToCandidateId = new Map<string, string>()
+      for (const { region, subitems } of gradingSubitems) {
+        for (const s of subitems) {
+          allRows.push({
+            monday_item_id: s.monday_item_id,
+            monday_parent_item_id: s.parent_item_id,
+            region: region,
+            subitem_name: s.subitem_name,
+            grader: s.grader,
+            ppv_captions: s.ppv_captions,
+            sexting_message_quality: s.sexting_message_quality,
+            hooks_opening_lines: s.hooks_opening_lines,
+            reply_time: s.reply_time,
+            golden_ratio: s.golden_ratio,
+            persona_match: s.persona_match,
+            whale_handling: s.whale_handling,
+            english_skills: s.english_skills,
+            reliability: s.reliability,
+            sales_generated_dollars: s.sales_generated_dollars,
+            monday_created_at: s.monday_created_at,
+            monday_updated_at: s.monday_updated_at,
+            last_synced_at: new Date().toISOString(),
+          })
+        }
+      }
+      // Resolve candidate_id by parent_item_id (so the modal can join easily later)
+      const parentIds = [...new Set(allRows.map(r => r.monday_parent_item_id as string))]
+      if (parentIds.length > 0) {
+        const PAGE = 500
+        for (let i = 0; i < parentIds.length; i += PAGE) {
+          const slice = parentIds.slice(i, i + PAGE)
+          const { data: candidatesFound } = await supabase
+            .from('candidates')
+            .select('id, monday_item_id')
+            .in('monday_item_id', slice)
+          for (const c of (candidatesFound ?? []) as { id: string; monday_item_id: string }[]) {
+            parentToCandidateId.set(c.monday_item_id, c.id)
+          }
+        }
+      }
+      for (const row of allRows) {
+        const pid = row.monday_parent_item_id as string
+        if (parentToCandidateId.has(pid)) row.candidate_id = parentToCandidateId.get(pid)
+      }
+      for (let i = 0; i < allRows.length; i += CHUNK) {
+        const slice = allRows.slice(i, i + CHUNK)
+        const { error: gErr } = await supabase
+          .from('chatter_grades')
+          .upsert(slice, { onConflict: 'monday_item_id' })
+        if (gErr) warnings.push(`chatter_grades upsert failed at offset ${i}: ${gErr.message}`)
+      }
+      chatterGradesSynced = allRows.length
+    }
+
+    // Compute composite + trajectory + latest sales per chatter, then push back
+    // to Monday parent rows. Best-effort — warnings only on failure.
+    let gradesWrittenBack = 0
+    try {
+      gradesWrittenBack = await computeAndWriteBackGrades(gradingSubitems, warnings)
+    } catch (err) {
+      warnings.push(`Grade write-back failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+
     const finishedAt = new Date()
     await supabase
       .from('sync_runs')
@@ -293,6 +369,8 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       boardGroupsSynced,
       pageBoardMapSynced,
       boardSummarySynced,
+      chatterGradesSynced,
+      gradesWrittenBack,
       transitionsRecorded: transitions.length,
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       fetchMs,
