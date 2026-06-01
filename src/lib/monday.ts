@@ -371,6 +371,49 @@ export async function fetchPageAssignmentBoard(): Promise<{ boardId: string; ite
   return { boardId, items: items.map(it => parsePageAssignmentItem(it, boardId)) }
 }
 
+// ---------------------------------------------------------------------------
+// Mutations — write back to Monday
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the column id for a given column title on a board. Monday's update
+ * mutations require the column id, not the title, and we don't store it
+ * anywhere yet.
+ */
+export async function findColumnId(boardId: string, ...titles: string[]): Promise<string | null> {
+  const query = `
+    query ($boardId: ID!) {
+      boards(ids: [$boardId]) { columns { id title } }
+    }
+  `
+  type Resp = { boards: [{ columns: { id: string; title: string }[] }] }
+  const data = await mondayGraphQL<Resp>(query, { boardId })
+  const lowered = titles.map(t => t.toLowerCase())
+  const match = data.boards[0]?.columns.find(c => lowered.includes(c.title.toLowerCase()))
+  return match?.id ?? null
+}
+
+/**
+ * Set a Status-column value on a Monday item to the given label.
+ * Monday's status columns require JSON like `{"label": "ACTIVE"}`. The label
+ * must already exist in the column's options.
+ */
+export async function setStatusColumnValue(boardId: string, itemId: string, columnId: string, label: string): Promise<void> {
+  const query = `
+    mutation ($boardId: ID!, $itemId: ID!, $columnId: String!, $value: JSON!) {
+      change_column_value(board_id: $boardId, item_id: $itemId, column_id: $columnId, value: $value) {
+        id
+      }
+    }
+  `
+  await mondayGraphQL(query, {
+    boardId,
+    itemId,
+    columnId,
+    value: JSON.stringify({ label }),
+  })
+}
+
 /**
  * Per-AE board layout. Each board's groups are named "POD A TEAM 1" — that's
  * the authoritative pod/team → board mapping. IDs are fixed (chat-stars

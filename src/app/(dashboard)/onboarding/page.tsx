@@ -4,6 +4,7 @@ import { getLastSyncedAt } from '@/lib/db'
 import { createAdminClient } from '@/lib/supabase/admin'
 import SyncButton from './SyncButton'
 import AssignmentLink from './AssignmentLink'
+import MarkActiveButton from './MarkActiveButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -233,7 +234,7 @@ export default async function OnboardingPage() {
   )
 }
 
-const GRID_COLS = 'minmax(0, 1.7fr) 96px 80px 80px 78px 64px minmax(120px, auto)'
+const GRID_COLS = 'minmax(0, 1.6fr) 92px 76px 76px 74px 60px minmax(110px, auto) 110px'
 
 function HeaderRow() {
   return (
@@ -251,6 +252,7 @@ function HeaderRow() {
       <div>Board</div>
       <div style={{ textAlign: 'right' }}>Teams</div>
       <div style={{ textAlign: 'right' }}>Still need</div>
+      <div style={{ textAlign: 'right' }}>Action</div>
     </div>
   )
 }
@@ -329,6 +331,11 @@ function ModelRow({ model, isLast }: { model: ModelWithCapacity; isLast: boolean
       ) : (
         <AssignmentLink model={model} stillColor={stillColor} />
       )}
+
+      {/* Action — manually flip status to ACTIVE if launching early */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <MarkActiveButton modelId={model.id} modelName={model.name} />
+      </div>
     </div>
   )
 }
