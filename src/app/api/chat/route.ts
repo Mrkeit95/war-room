@@ -50,6 +50,8 @@ async function buildContext(): Promise<string> {
     recentMoves,
     allCandidates,
     pagesRes,
+    assignmentsRes,
+    modelsRes,
     deptMovements,
     stageDeltas,
     managerActivity,
@@ -67,10 +69,20 @@ async function buildContext(): Promise<string> {
     getLastSyncedAt(),
     getRecentMovements(40),
     listCandidates({ limit: 5000 }),
+    // page_board_map — real columns only (no `goal`, `pod_label`, `manager`)
     supabase.from('page_board_map')
-      .select('page_name, board_name, running_sales, goal, active, agency, pod_label, manager')
+      .select('page_name, board_name, running_sales, active, agency, handle, inflow_username')
       .order('running_sales', { ascending: false, nullsFirst: false })
       .limit(500),
+    // page_assignments — pod, team, shift, chatter linkage
+    supabase.from('page_assignments')
+      .select('page_name, pod, team, shift_name, chatter_name, group_title')
+      .not('pod', 'is', null)
+      .limit(2000),
+    // models — agency, page_type, board, AE, telegram, revenue, status
+    supabase.from('models')
+      .select('name, agency, page_type, board, ae, revenue, status, telegram_group, group_title')
+      .limit(2000),
     getDepartmentMovements(),
     getStageDeltas(1),
     getManagerActivity(),
@@ -148,16 +160,84 @@ async function buildContext(): Promise<string> {
   }
   lines.push('')
 
-  // All pages (active chatter directory)
-  type Page = { page_name: string; board_name: string; running_sales: number | null; goal: number | null; active: boolean | null; agency: string | null; pod_label: string | null; manager: string | null }
+  // Build a unified pages directory by joining page_board_map + models + page_assignments
+  type Page = { page_name: string; board_name: string; running_sales: number | null; active: boolean | null; agency: string | null; handle: string | null; inflow_username: string | null }
+  type Assignment = { page_name: string; pod: string | null; team: string | null; shift_name: string | null; chatter_name: string | null; group_title: string | null }
+  type Model = { name: string; agency: string | null; page_type: string | null; board: string | null; ae: string | null; revenue: number | null; status: string | null; telegram_group: string | null; group_title: string | null }
+
   const pages = (pagesRes.data ?? []) as Page[]
-  lines.push(`─── ACTIVE PAGES (${pages.filter(p => p.active !== false).length} of ${pages.length}) ───`)
-  lines.push('page | board | $ run | $ goal | agency | pod | mgr | active')
-  for (const p of pages) {
-    if (p.active === false) continue
-    lines.push(`${p.page_name} | ${p.board_name} | ${fmt$(p.running_sales)} | ${fmt$(p.goal)} | ${p.agency ?? '—'} | ${p.pod_label ?? '—'} | ${p.manager ?? '—'}`)
+  const assignments = (assignmentsRes.data ?? []) as Assignment[]
+  const models = (modelsRes.data ?? []) as Model[]
+
+  // Index models by normalised page name (uppercase, trimmed) — model names match page names usually
+  const norm = (s: string | null | undefined) => (s ?? '').toUpperCase().replace(/\s+/g, ' ').trim()
+  const modelByName = new Map<string, Model>()
+  for (const m of models) {
+    const k = norm(m.name)
+    if (k) modelByName.set(k, m)
+  }
+
+  // Index assignments by page name → list of pod/shift/chatter rows
+  const assignByPage = new Map<string, Assignment[]>()
+  for (const a of assignments) {
+    const k = norm(a.page_name)
+    if (!k) continue
+    const arr = assignByPage.get(k) ?? []
+    arr.push(a)
+    assignByPage.set(k, arr)
+  }
+
+  // Unified page directory (active first)
+  const activePages = pages.filter(p => p.active !== false)
+  lines.push(`─── ACTIVE PAGES (${activePages.length} of ${pages.length} in revenue tracker) ───`)
+  lines.push('page | board | $ running | agency | AE | page type | pod-team | handle')
+  for (const p of activePages) {
+    const k = norm(p.page_name)
+    const m = modelByName.get(k)
+    const a = assignByPage.get(k)?.[0]
+    const podTeam = a?.pod ? `${a.pod}${a.team ? '-' + a.team : ''}` : '—'
+    const handle = p.handle ?? '—'
+    const ae = m?.ae ?? '—'
+    const pageType = m?.page_type ?? '—'
+    const agency = p.agency ?? m?.agency ?? '—'
+    lines.push(`${p.page_name} | ${p.board_name} | ${fmt$(p.running_sales)} | ${agency} | ${ae} | ${pageType} | ${podTeam} | ${handle}`)
   }
   lines.push('')
+
+  // Pod → pages map (distinct pages per pod)
+  const podPages = new Map<string, Set<string>>()
+  for (const a of assignments) {
+    if (!a.pod) continue
+    const set = podPages.get(a.pod) ?? new Set<string>()
+    set.add(`${a.page_name}${a.team ? ' (' + a.team + ')' : ''}`)
+    podPages.set(a.pod, set)
+  }
+  const podKeys = [...podPages.keys()].sort()
+  lines.push(`─── PODS (${podKeys.length} pods, page roster) ───`)
+  for (const pod of podKeys) {
+    const ps = [...podPages.get(pod)!].sort()
+    lines.push(`POD ${pod} (${ps.length} pages): ${ps.join(', ')}`)
+  }
+  lines.push('')
+
+  // Pod × shift × chatter grid (full schedule view)
+  lines.push(`─── POD SHIFT SCHEDULE (page | pod-team | shift | chatters) ───`)
+  for (const a of assignments) {
+    if (!a.pod || !a.chatter_name) continue
+    lines.push(`${a.page_name} | ${a.pod}${a.team ? '-' + a.team : ''} | ${a.shift_name ?? '—'} | ${a.chatter_name}`)
+  }
+  lines.push('')
+
+  // Models inventory — pages with metadata that may NOT be in the revenue tracker yet
+  const pageNamesInTracker = new Set(pages.map(p => norm(p.page_name)))
+  const modelsNotInTracker = models.filter(m => m.name && !pageNamesInTracker.has(norm(m.name)) && m.group_title === 'ACTIVE')
+  if (modelsNotInTracker.length > 0) {
+    lines.push(`─── ACTIVE MODELS NOT IN REVENUE TRACKER (${modelsNotInTracker.length}) ───`)
+    for (const m of modelsNotInTracker) {
+      lines.push(`${m.name} | ${m.board ?? '—'} | ${m.agency ?? '—'} | AE: ${m.ae ?? '—'} | ${m.page_type ?? '—'} | rev=${fmt$(m.revenue)}`)
+    }
+    lines.push('')
+  }
 
   // Candidate directory (compact)
   lines.push(`─── CANDIDATE DIRECTORY (${allCandidates.length}) ───`)
@@ -295,6 +375,8 @@ ANSWERING RULES
 - BUT — be FUZZY on user input. If Keit types "Sebastien" and the directory has "Juan Sebastian Gonzalez Perez," that's the same person (English vs French spelling, partial name, casual nickname → match it). Same goes for "Andrei" matching "Andrei Angelo Cando", "Pamela" matching "Pamela Amuro Miña", etc. ALWAYS attempt a partial/fuzzy match on names before saying "not found".
 - The ORG STRUCTURE section is the source of truth for who is a manager. Juan Sebastian Gonzalez Perez (SA Head), Aleksandar Simic (EU Head), Noah Whall (UK Head), and the PH section managers ARE managers even if they don't appear elsewhere — never say "no such manager" if they're in the org structure.
 - "Where is X?" → fuzzy-match the name. Report region, stage, manager, tier (and revenue if a page). If X is a manager, report their role, what region/section they own, and how their team is performing.
+- "What pages are on POD X?" / "Who chats POD X?" → use the PODS section (pod → page roster) and POD SHIFT SCHEDULE (page × shift × chatter). Pods are A through J. Teams are T1-T4 within each pod.
+- "Who is the AE / agency / chat manager for [page]?" → use ACTIVE PAGES (which has AE + agency + page type) joined with the model metadata. If a page isn't in the revenue tracker but is in models, check ACTIVE MODELS NOT IN REVENUE TRACKER.
 - For aggregates, recompute from the data; show 1-2 numbers as proof so Keit can sanity-check, then give your verdict.
 - Tier scale is INVERTED: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.
 - Active checkbox: blank = active. Only FALSE means inactive.
