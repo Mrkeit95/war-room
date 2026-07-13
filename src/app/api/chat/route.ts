@@ -349,7 +349,7 @@ async function buildContext(): Promise<string> {
   lines.push('Interview/training rotation: interview week and training week alternate — managers cannot do both in the same week.')
   lines.push('Active vs blank checkbox: a page is "active" unless explicitly marked FALSE. Blank/NULL = active.')
   lines.push('Boards: BOARD 1, BOARD 2, BOARD 3, TRAINING BOARD, TOWER. Pages live under boards; chatters work pages.')
-  lines.push('Regions: PH (Philippines), EU (Europe), SA (South America). The UK department was closed and is no longer part of the business — never mention UK or Noah Whall unless the user explicitly asks about the closed dept.')
+  lines.push('Regions: PH (Philippines), EU (Europe), SA (South America). The UK department was closed and is no longer part of the business.')
   lines.push('Stages live in current_group_title (raw Monday) and current_stage (normalized). The directory above uses raw Monday titles.')
 
   return lines.join('\n')

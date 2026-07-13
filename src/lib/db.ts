@@ -777,7 +777,6 @@ function getManagerRoster(): RosterEntry[] {
     // Regional heads
     { monManager: 'Aleksandar Simic', displayName: 'Aleksandar Simic', role: 'EU Head', sortGroup: 4 },
     { monManager: 'JUAN SEBASTIAN GONZALEZ PEREZ', displayName: 'Juan Sebastian Gonzalez Perez', role: 'SA Head', sortGroup: 4 },
-    { monManager: 'noah whall', displayName: 'Noah Whall', role: 'UK Head', sortGroup: 4 },
   ]
 }
 
