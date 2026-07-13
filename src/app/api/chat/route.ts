@@ -243,11 +243,24 @@ async function buildContext(): Promise<string> {
 
   // Candidate directory (compact) — UK filtered out (closed department)
   const activeCandidates = allCandidates.filter(c => isActiveRegion(c.region))
-  lines.push(`─── CANDIDATE DIRECTORY (${activeCandidates.length}) ───`)
+  const nonOffboarded = activeCandidates.filter(c => c.current_stage !== 'offboarded')
+  const offboarded = activeCandidates.filter(c => c.current_stage === 'offboarded')
+  lines.push(`─── CANDIDATE DIRECTORY (${nonOffboarded.length} in pipeline) ───`)
   lines.push('name | region | stage | tier | track | manager')
-  for (const c of activeCandidates) {
-    if (c.current_stage === 'offboarded') continue
+  for (const c of nonOffboarded) {
     lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? c.current_stage} | ${c.tier ?? '—'} | ${c.track ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'}`)
+  }
+  lines.push('')
+
+  // Offboarded roster — enables "who did we cut" style questions for weekly reports
+  lines.push(`─── OFFBOARDED CANDIDATES (${offboarded.length} total, ever) ───`)
+  lines.push('name | region | last-group | manager | last-updated')
+  const offboardedSorted = [...offboarded].sort((a, b) => (b.monday_updated_at ?? '').localeCompare(a.monday_updated_at ?? ''))
+  for (const c of offboardedSorted.slice(0, 400)) {
+    lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'} | ${c.monday_updated_at?.slice(0, 10) ?? '—'}`)
+  }
+  if (offboardedSorted.length > 400) {
+    lines.push(`… ${offboardedSorted.length - 400} older offboards truncated (still counted in the total above)`)
   }
   lines.push('')
 
@@ -403,6 +416,8 @@ ANSWERING RULES
 - "What pages are on POD X?" / "Who chats POD X?" → use the PODS section (pod → page roster) and POD SHIFT SCHEDULE (page × shift × chatter). Pods are A through J. Teams are T1-T4 within each pod.
 - "How many moved to X in the last N days?" / "Who moved to active/standby in the last 14 days?" / "What's happened over time?" → use MOVEMENTS BY WINDOW for aggregate counts (24h, 7d, 14d, 30d, all-time) and NAMED MOVEMENTS to list the specific candidates. If N doesn't exactly match a bucket, use the closest bucket + explain (e.g. "using 14d window as the closest bucket").
 - For custom windows not in the buckets (e.g. "last 21 days"), filter NAMED MOVEMENTS by date manually and recount.
+- "Who was offboarded / cut?" or "who did we lose in the last week?" → count NAMED MOVEMENTS where to = 'offboarded' inside the requested window, and cross-reference OFFBOARDED CANDIDATES for the roster. The OFFBOARDED CANDIDATES section holds up to 400 most recently offboarded — for older ones, tell Keit the DB has more but they were truncated.
+- WEEKLY REPORT FORMAT (when Keit asks for a hiring/training report for his bosses): produce a report of exactly this shape per region — "PH: X new candidates entered pipeline · Y started training · Z passed to active · W to standby · N offboarded · net = +M in pipeline". Include totals across all regions at the top. Then list the concrete names for each bucket so his bosses can see who's who. Base numbers on the 7d window unless he specifies another window.
 - "Who is the AE / agency / chat manager for [page]?" → use ACTIVE PAGES (which has AE + agency + page type) joined with the model metadata. If a page isn't in the revenue tracker but is in models, check ACTIVE MODELS NOT IN REVENUE TRACKER.
 - For aggregates, recompute from the data; show 1-2 numbers as proof so Keit can sanity-check, then give your verdict.
 - Tier scale is INVERTED: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.

@@ -38,23 +38,36 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
   'SCHEDULED INTERVIEWS': 'scheduled_interview',
   'SCHEDULED INTERVIEWS (EXP)': 'scheduled_interview',
   'INVITED FOR INTERVIEW': 'scheduled_interview',
+  'INVITED FOR INTERVIEW (EXP)': 'scheduled_interview',
   'TRANSFERRED TO ALEKSANDAR (EXP)': 'offboarded',
+  'Transfered': 'offboarded',
+
+  // Referral / intake variants
+  'REFERRALS (EURO)': 'typeform',
 
   // Onboarding / pending-week-1
   'PENDING- DISCORD ONBOARDING': 'pending_onboarding',
   'PENDING- DISCORD ONBOARDING EXP': 'pending_onboarding',
   'PENDING- DISCORD ONBOARDING NO EXP': 'pending_onboarding',
   'PENDING - DISCORD ONBOARDING(EXP)': 'pending_onboarding',
+  'Pending Discord Onboarding': 'pending_onboarding',
   'PENDING WEEK 1': 'pending_week_1',
+  'PENDING WEEK 1 (NON EXP)': 'pending_week_1',
+  'PENDING WEEK 1 (Non Exp)': 'pending_week_1',
+  'PENDING WEEK 3 (EXP)': 'week_3_training',   // pending W3 is still training-phase per operator
 
   // Training
+  'DAY 1 (EXP)': 'week_1_training',
   'WEEK 1- TRAINING': 'week_1_training',
   'WEEK 1- TRAINING (Non Exp)': 'week_1_training',
   'WEEK 1- TRAINING (EXP)': 'training_board',
   'WEEK 1 TRAINING': 'week_1_training',
   'WEEK 2- TRAINING': 'week_2_training',
+  'WEEK 2- TRAINING (Non Exp)': 'week_2_training',
   'WEEK 2 TRAINING SHADOW+LIVE CHATS': 'week_2_training',
+  'WEEK 3- TRAINING (EXP)': 'week_3_training',
   'WEEK 3-4 EXTRA CHATTING': 'week_3_training',
+  'SHADOWING': 'training_board',
 
   // Training board (PH-specific exp track)
   'TRAINING BOARD CHATTERS': 'training_board',
@@ -66,6 +79,7 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
   'STANDBY': 'standby',
   'STANDBY (EXP)': 'standby',
   'STANDBY (Non Exp)': 'standby',
+  'STANDBY (NON EXP)': 'standby',
   'STANDBY (FROM TB)': 'standby',
 
   // Active / promoted / PTO
@@ -78,9 +92,20 @@ const STAGE_BY_GROUP: Record<string, CanonicalStage> = {
   'BLACKLISTED': 'offboarded',
 }
 
+// Case-insensitive + whitespace-normalised fallback index. Rebuilt at module load.
+const STAGE_BY_GROUP_NORM: Record<string, CanonicalStage> = {}
+for (const [k, v] of Object.entries(STAGE_BY_GROUP)) {
+  STAGE_BY_GROUP_NORM[k.toUpperCase().replace(/\s+/g, ' ').trim()] = v
+}
+
 export function normalizeStage(groupTitle: string | null | undefined): CanonicalStage | null {
   if (!groupTitle) return null
-  return STAGE_BY_GROUP[groupTitle] ?? null
+  // Exact match first.
+  const exact = STAGE_BY_GROUP[groupTitle]
+  if (exact) return exact
+  // Fall back to normalised lookup — collapses trailing spaces, double spaces, case mismatch.
+  const norm = groupTitle.toUpperCase().replace(/\s+/g, ' ').trim()
+  return STAGE_BY_GROUP_NORM[norm] ?? null
 }
 
 export function uiBucket(stage: CanonicalStage | null | undefined): UiBucket {
