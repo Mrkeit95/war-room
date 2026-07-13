@@ -94,6 +94,16 @@ async function buildContext(): Promise<string> {
   // Belt-and-suspenders: some UK rows may still exist in Supabase from before the department
   // was closed. Filter them out everywhere the AI can see them, regardless of DB state.
   const isActiveRegion = (r: string | null | undefined): boolean => r === 'PH' || r === 'EU' || r === 'SA'
+  // Skip Monday's placeholder rows and other non-real candidates so the AI (and alerts) don't
+  // report on scaffolding as if it were a person waiting to be processed.
+  const isPlaceholderName = (n: string | null | undefined): boolean => {
+    if (!n) return true
+    const s = n.trim().toLowerCase()
+    if (s.length < 2) return true
+    if (s === 'new name' || s === 'name' || s === 'test' || s === 'testing') return true
+    if (/^new item(\s|$)/i.test(s)) return true
+    return false
+  }
 
   const lines: string[] = []
   lines.push('═══ WAR ROOM LIVE STATE ═══')
@@ -242,7 +252,7 @@ async function buildContext(): Promise<string> {
   }
 
   // Candidate directory (compact) — UK filtered out (closed department)
-  const activeCandidates = allCandidates.filter(c => isActiveRegion(c.region))
+  const activeCandidates = allCandidates.filter(c => isActiveRegion(c.region) && !isPlaceholderName(c.name))
   const nonOffboarded = activeCandidates.filter(c => c.current_stage !== 'offboarded')
   const offboarded = activeCandidates.filter(c => c.current_stage === 'offboarded')
   lines.push(`─── CANDIDATE DIRECTORY (${nonOffboarded.length} in pipeline) ───`)
@@ -281,7 +291,10 @@ async function buildContext(): Promise<string> {
   lines.push('')
 
   // Multi-window movements per region (24h / 7d / 14d / 30d / all-time)
-  lines.push('─── MOVEMENTS BY WINDOW (transitions INTO each bucket, per region) ───')
+  // NOTE: counts fresh Monday arrivals (candidates created directly into a bucket without a
+  // recorded transition) in addition to stage transitions — so "→training" includes both
+  // "existing candidate promoted to training" AND "new candidate added straight into training".
+  lines.push('─── MOVEMENTS BY WINDOW (arrivals INTO each bucket, per region — includes fresh Monday adds) ───')
   lines.push('region | window | →active | →standby | →training | →offboarded | total transitions')
   for (const w of movementWindowsData.windows) {
     const c = w.counts

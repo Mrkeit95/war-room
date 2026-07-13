@@ -168,6 +168,83 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       if (transErr) throw new Error(`Transition insert failed: ${transErr.message}`)
     }
 
+    // ─── Ghost pruning ───
+    // Candidates that used to be on Monday but no longer are (deleted/archived) accumulate
+    // as ghosts in Supabase because upsert never removes rows. Anything whose last_synced_at
+    // is older than "this run started" is a ghost — mark it offboarded so it drops out of
+    // pipeline counts/alerts/AI context.
+    // Safety: only prune within a region if the sync successfully fetched candidates from
+    // that region's board (don't wipe a region because its board fetch quietly returned 0).
+    const seenIdsByRegion = new Map<string, Set<string>>()
+    for (const board of boards) {
+      const set = seenIdsByRegion.get(board.region) ?? new Set<string>()
+      for (const item of board.items) set.add(item.monday_item_id)
+      seenIdsByRegion.set(board.region, set)
+    }
+    const ghostTransitions: { candidate_id: string; from_stage: string; to_stage: string }[] = []
+    let ghostsPruned = 0
+    for (const [region, seenIds] of seenIdsByRegion) {
+      if (seenIds.size === 0) {
+        warnings.push(`Ghost prune skipped for ${region}: 0 items fetched from Monday`)
+        continue
+      }
+      // Everything in DB for this region that wasn't in this sync's snapshot AND isn't already offboarded.
+      const ghosts = existingAll.filter(e => !seenIds.has(e.monday_item_id) && e.current_stage !== 'offboarded')
+      // Cross-check against region — need to filter by region. existingAll doesn't have region loaded,
+      // fetch just the ids we care about with their region for the guardrail.
+      if (ghosts.length === 0) continue
+      const ghostIds = ghosts.map(g => g.id)
+      const { data: ghostRows, error: ghostFetchErr } = await supabase
+        .from('candidates')
+        .select('id, monday_item_id, region, current_stage')
+        .in('id', ghostIds)
+        .eq('region', region)
+      if (ghostFetchErr) {
+        warnings.push(`Ghost fetch failed for ${region}: ${ghostFetchErr.message}`)
+        continue
+      }
+      const regionGhosts = (ghostRows ?? []) as { id: string; monday_item_id: string; region: string; current_stage: string }[]
+      if (regionGhosts.length === 0) continue
+      // Safety cap: if >30% of the region would be pruned, something's probably wrong — skip and warn.
+      const regionTotal = existingAll.filter(e => {
+        // We don't have region on existingAll, approximate by ghosts + seen. This over-estimates the base
+        // but is conservative (harder to trip the safety cap).
+        return true
+      }).length
+      const cap = Math.max(50, Math.floor(seenIds.size * 0.30))
+      if (regionGhosts.length > cap) {
+        warnings.push(`Ghost prune skipped for ${region}: would prune ${regionGhosts.length} (>30% of ${seenIds.size} synced) — likely sync fetched partial data`)
+        continue
+      }
+      // Mark as offboarded
+      const { error: pruneErr } = await supabase
+        .from('candidates')
+        .update({
+          current_stage: 'offboarded',
+          current_group_title: 'OFFBOARDED (removed from Monday)',
+          last_synced_at: new Date().toISOString(),
+        })
+        .in('id', regionGhosts.map(g => g.id))
+      if (pruneErr) {
+        warnings.push(`Ghost prune update failed for ${region}: ${pruneErr.message}`)
+        continue
+      }
+      // Record transitions so weekly reports show the movement
+      for (const g of regionGhosts) {
+        if (g.current_stage !== 'offboarded') {
+          ghostTransitions.push({ candidate_id: g.id, from_stage: g.current_stage, to_stage: 'offboarded' })
+        }
+      }
+      ghostsPruned += regionGhosts.length
+    }
+    if (ghostTransitions.length > 0) {
+      const { error: ghostTransErr } = await supabase.from('stage_transitions').insert(ghostTransitions)
+      if (ghostTransErr) warnings.push(`Ghost transition insert failed: ${ghostTransErr.message}`)
+    }
+    if (ghostsPruned > 0) {
+      warnings.push(`Pruned ${ghostsPruned} ghost candidates (no longer on Monday)`)
+    }
+
     // Models board (separate Monday board, separate table). Skip silently if env var unset.
     let modelsSynced = 0
     if (modelBoard) {

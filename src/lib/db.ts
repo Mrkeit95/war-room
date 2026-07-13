@@ -387,6 +387,9 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
   for (const c of data) {
     // Skip rows for regions we no longer track (e.g. stray UK data).
     if (!bucketCounts[c.region]) continue
+    // Skip Monday placeholder rows so they don't show up as critical alerts.
+    const nameNorm = (c.name ?? '').trim().toLowerCase()
+    if (!nameNorm || nameNorm === 'new name' || nameNorm === 'name' || /^new item(\s|$)/i.test(nameNorm)) continue
     const bucket = uiBucket(c.current_stage)
     if (bucket) bucketCounts[c.region][bucket] += 1
 
@@ -1119,14 +1122,28 @@ export async function getMovementsSince(since: string | null): Promise<NamedMove
 }
 
 /**
- * Roll every-window counts per region in one pass over the all-time transitions.
- * Returns per-region rows for 24h/7d/14d/30d/all-time. Also returns the raw movements
- * for callers that need to list names (e.g. "who moved to active in the last 14d").
+ * Roll every-window counts per region.
+ *
+ * Combines two signals:
+ *   1. Stage transitions (existing candidates who moved).
+ *   2. Fresh Monday arrivals — candidates whose monday_created_at falls in the
+ *      window AND whose current stage lands in one of the counted buckets. This
+ *      catches candidates who were dropped straight into WEEK 1 TRAINING (or any
+ *      stage) on Monday without a prior stage, which the transition table would
+ *      never record. Without this, "SA started 30 in training last week" was
+ *      being reported as "SA →training = 2" because only the 2 who arrived via
+ *      SCHEDULED_INTERVIEW → WEEK 1 got recorded transitions.
+ *   3. Also counts candidates whose earliest recorded transition FROM a bucket
+ *      falls in the window — captures the "started training then got cut" case
+ *      even if the arrival transition itself wasn't recorded.
+ *
+ * Returns per-region rows for 24h/7d/14d/30d/all-time plus the raw movement list.
  */
 export async function getRegionMovementWindows(): Promise<{
   windows: RegionMovementWindow[]
   movements: NamedMovement[]
 }> {
+  const supabase = createAdminClient()
   const all = await getMovementsSince(null)
   const now = Date.now()
 
@@ -1140,27 +1157,84 @@ export async function getRegionMovementWindows(): Promise<{
     SA: { '24h': emptyCounts(), '7d': emptyCounts(), '14d': emptyCounts(), '30d': emptyCounts(), all: emptyCounts() },
   }
 
-  for (const m of all) {
-    if (!regions.includes(m.region)) continue
-    const ageMs = now - new Date(m.detectedAt).getTime()
-    const bucket = m.toBucket
-    const isActive = bucket === 'active'
-    const isStandby = bucket === 'standby'
-    const isTraining = bucket === 'training'
-    const isOffboarded = m.toStage === 'offboarded'
+  // Track (monday_item_id, bucket) so we don't double-count a candidate whose
+  // arrival is captured by both a transition AND their fresh-arrival record.
+  const countedArrivals = new Set<string>()  // key = `${region}|${bucket}|${candName}`
+
+  const bumpBucket = (region: Region, ageMs: number, bucket: UiBucket, isOffboarded: boolean, key: string | null) => {
+    if (!regions.includes(region)) return
+    if (key) {
+      if (countedArrivals.has(key)) return
+      countedArrivals.add(key)
+    }
     const inWindow: MovementWindow[] = ['all']
     if (ageMs <= WINDOW_MS['30d']) inWindow.push('30d')
     if (ageMs <= WINDOW_MS['14d']) inWindow.push('14d')
     if (ageMs <= WINDOW_MS['7d']) inWindow.push('7d')
     if (ageMs <= WINDOW_MS['24h']) inWindow.push('24h')
     for (const w of inWindow) {
-      const c = acc[m.region][w]
+      const c = acc[region][w]
       c.total += 1
-      if (isActive) c.toActive += 1
-      if (isStandby) c.toStandby += 1
-      if (isTraining) c.toTraining += 1
+      if (bucket === 'active') c.toActive += 1
+      if (bucket === 'standby') c.toStandby += 1
+      if (bucket === 'training') c.toTraining += 1
       if (isOffboarded) c.toOffboarded += 1
     }
+  }
+
+  // Signal 1: recorded transitions
+  for (const m of all) {
+    const ageMs = now - new Date(m.detectedAt).getTime()
+    const key = `${m.region}|${m.toBucket ?? 'off'}|${m.candidateName}`
+    bumpBucket(m.region, ageMs, m.toBucket, m.toStage === 'offboarded', key)
+  }
+
+  // Signal 2: fresh Monday arrivals — candidates whose monday_created_at is in the
+  // window, whose current stage is meaningful, and whose region we care about.
+  // Also cross-reference against transitions to avoid double-counting.
+  const cutoff30d = new Date(now - WINDOW_MS['30d']).toISOString()
+  const fresh = await fetchAllPaged<{ name: string; region: Region; current_stage: CanonicalStage; monday_created_at: string | null }>((from, to) =>
+    supabase.from('candidates')
+      .select('name, region, current_stage, monday_created_at')
+      .gte('monday_created_at', cutoff30d)
+      .range(from, to),
+  )
+  for (const c of fresh) {
+    if (!regions.includes(c.region)) continue
+    if (!c.monday_created_at) continue
+    const ageMs = now - new Date(c.monday_created_at).getTime()
+    if (ageMs < 0) continue
+    const bucket = uiBucket(c.current_stage)
+    const key = `${c.region}|${bucket ?? 'off'}|${c.name}`
+    // Only count if this candidate isn't already represented by a transition INTO this bucket.
+    if (countedArrivals.has(key)) continue
+    // If they're now offboarded, count them as an offboard in the window (arrival happened, then cut)
+    if (c.current_stage === 'offboarded') {
+      bumpBucket(c.region, ageMs, null, true, key)
+      continue
+    }
+    bumpBucket(c.region, ageMs, bucket, false, key)
+  }
+
+  // Signal 3: candidates whose earliest transition FROM a bucket happened in the window
+  // — they were in that bucket before it, so treat the create-time as the arrival.
+  // Sort transitions by detected_at ascending, per candidate, keep the earliest from_stage.
+  const byCand = new Map<string, NamedMovement[]>()
+  for (const m of all) {
+    const arr = byCand.get(m.candidateName + '|' + m.region) ?? []
+    arr.push(m)
+    byCand.set(m.candidateName + '|' + m.region, arr)
+  }
+  for (const [, arr] of byCand) {
+    arr.sort((a, b) => a.detectedAt.localeCompare(b.detectedAt))
+    const first = arr[0]
+    if (!first.fromStage) continue
+    const fromBucket = uiBucket(first.fromStage)
+    if (!fromBucket) continue
+    const ageMs = now - new Date(first.detectedAt).getTime()
+    const key = `${first.region}|${fromBucket}|${first.candidateName}`
+    if (countedArrivals.has(key)) continue
+    bumpBucket(first.region, ageMs, fromBucket, false, key)
   }
 
   const flat: RegionMovementWindow[] = []
