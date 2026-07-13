@@ -86,6 +86,8 @@ export async function getDashboardStats() {
   let totalAll = 0
 
   for (const row of data) {
+    // Defensive: skip rows whose region isn't one of the active regions (e.g. stray UK).
+    if (!byRegion[row.region]) continue
     totalAll += 1
     if (row.current_stage === 'offboarded') {
       offboardedByRegion[row.region] += 1
@@ -383,6 +385,8 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
   }
 
   for (const c of data) {
+    // Skip rows for regions we no longer track (e.g. stray UK data).
+    if (!bucketCounts[c.region]) continue
     const bucket = uiBucket(c.current_stage)
     if (bucket) bucketCounts[c.region][bucket] += 1
 
