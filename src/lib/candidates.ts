@@ -8,7 +8,7 @@ export type TimelineEntry = {
   grade?: Grade
 }
 
-export type Region = 'PH' | 'EU' | 'SA' | 'UK'
+export type Region = 'PH' | 'EU' | 'SA'
 export type StageKey = 'typeform' | 'passed' | 'pending' | 'scheduled' | 'training' | 'standby' | 'active'
 
 export type Candidate = {
@@ -46,8 +46,6 @@ export const CANDIDATES: Record<string, Candidate> = {
   'maja-p': { id: 'maja-p', name: 'Maja P.', region: 'PH', stage: 'Lane B · Week 1 · Day 3', stageKey: 'training', grade: 'F', trajectory: 'down', manager: 'Mark', days: 3,
     tags: { strengths: [], flags: ['Late replies', 'Low engagement'] },
     timeline: [{ date: 'May 18', title: 'Day 3 score 3/10', type: 'down', grade: 'F' }], notes: [] },
-  'james-t': { id: 'james-t', name: 'James T.', region: 'UK', stage: 'Week 1 · Day 5', stageKey: 'training', grade: 'D', trajectory: 'down', manager: 'Noah', days: 5,
-    tags: { strengths: [], flags: ['Tech issues'] }, timeline: [], notes: [] },
   'jenna-k': { id: 'jenna-k', name: 'Jenna K.', region: 'PH', stage: 'Interview today 1pm', stageKey: 'scheduled', grade: 'A', trajectory: 'flat', manager: 'Apple', days: 0,
     tags: { strengths: ['Experienced 2yr'], flags: [] }, timeline: [], notes: [] },
   'maria-s': { id: 'maria-s', name: 'Maria S.', region: 'PH', stage: 'Interview today 10am', stageKey: 'scheduled', grade: null, trajectory: null, manager: 'Apple', days: 0,
@@ -62,14 +60,6 @@ export const CANDIDATES: Record<string, Candidate> = {
     tags: { strengths: [], flags: [] }, timeline: [], notes: [] },
   'diego-f': { id: 'diego-f', name: 'Diego F.', region: 'SA', stage: 'Pending Interview · 4d', stageKey: 'pending', grade: 'D', trajectory: 'flat', manager: 'Sebastien', days: 4,
     tags: { strengths: [], flags: ['Ghosting'] }, timeline: [], notes: [] },
-  'fsf': { id: 'fsf', name: 'FSF', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
-    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'noah-whall': { id: 'noah-whall', name: 'Noah Whall', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
-    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'noah': { id: 'noah', name: 'NOAH', region: 'UK', stage: 'Typeform · 6d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 6,
-    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
-  'john-k': { id: 'john-k', name: 'John K.', region: 'UK', stage: 'Typeform · 5d', stageKey: 'typeform', grade: null, trajectory: 'down', manager: 'Noah', days: 5,
-    tags: { strengths: [], flags: ['Stuck'] }, timeline: [], notes: [] },
 }
 
 export type SegmentFilter =
@@ -86,7 +76,7 @@ export function parseSegment(value: string | null | undefined): SegmentFilter | 
   const rest = value.slice(firstColon + 1)
   if (!regionRaw || !rest) return null
   const region = regionRaw.toUpperCase() as Region
-  if (!['PH', 'EU', 'SA', 'UK'].includes(region)) return null
+  if (!['PH', 'EU', 'SA'].includes(region)) return null
 
   if (rest === 'all') return { kind: 'all', region }
   if (rest.startsWith('grade-')) {
@@ -116,7 +106,6 @@ const REGION_LABELS: Record<Region, { flag: string; name: string }> = {
   PH: { flag: '🇵🇭', name: 'Philippines' },
   EU: { flag: '🇪🇺', name: 'Europe' },
   SA: { flag: '🇨🇴', name: 'South America' },
-  UK: { flag: '🇬🇧', name: 'United Kingdom' },
 }
 
 export function segmentLabel(filter: SegmentFilter): { title: string; sub: string } {

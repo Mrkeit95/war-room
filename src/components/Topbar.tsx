@@ -14,7 +14,6 @@ const pageTitles: Record<string, string> = {
   '/departments/ph': 'Philippines',
   '/departments/eu': 'Europe',
   '/departments/sa': 'South America',
-  '/departments/uk': 'United Kingdom',
   '/standby': 'Standby',
   '/managers': 'Managers & shifts',
   '/top-performers': 'Top performers',

@@ -21,7 +21,7 @@ export type MondayItem = {
   column_values: MondayColumnValue[]
 }
 
-export type RegionCode = 'PH' | 'EU' | 'SA' | 'UK'
+export type RegionCode = 'PH' | 'EU' | 'SA'
 
 export const BOARD_REGIONS: Record<string, RegionCode> = {} // populated at runtime from env
 
@@ -30,7 +30,6 @@ function getBoardConfig(): { region: RegionCode; boardId: string }[] {
     PH: process.env.MONDAY_BOARD_ID_PH,
     EU: process.env.MONDAY_BOARD_ID_EU,
     SA: process.env.MONDAY_BOARD_ID_SA,
-    UK: process.env.MONDAY_BOARD_ID_UK,
   }
   const config: { region: RegionCode; boardId: string }[] = []
   for (const [region, boardId] of Object.entries(map) as [RegionCode, string | undefined][]) {

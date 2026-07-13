@@ -52,7 +52,6 @@ export async function replicateGradingColumns(): Promise<ReplicateResult> {
     const targets: { name: string; id: string | undefined }[] = [
       { name: 'EU', id: process.env.MONDAY_BOARD_ID_EU },
       { name: 'SA', id: process.env.MONDAY_BOARD_ID_SA },
-      { name: 'UK', id: process.env.MONDAY_BOARD_ID_UK },
     ]
     if (!sourceBoardId) return { ok: false, error: 'MONDAY_BOARD_ID_PH not set' }
     for (const t of targets) {
@@ -195,7 +194,6 @@ export async function verifyGradingColumns(): Promise<VerifyResult> {
     const targets: { name: string; id: string | undefined }[] = [
       { name: 'EU', id: process.env.MONDAY_BOARD_ID_EU },
       { name: 'SA', id: process.env.MONDAY_BOARD_ID_SA },
-      { name: 'UK', id: process.env.MONDAY_BOARD_ID_UK },
     ]
     if (!sourceBoardId) return { ok: false, error: 'MONDAY_BOARD_ID_PH not set' }
 

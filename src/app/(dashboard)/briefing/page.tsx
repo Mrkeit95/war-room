@@ -522,10 +522,9 @@ const REGION_LABEL: Record<Region, { flag: string; name: string }> = {
   PH: { flag: '🇵🇭', name: 'Philippines' },
   EU: { flag: '🇪🇺', name: 'Europe' },
   SA: { flag: '🇨🇴', name: 'South America' },
-  UK: { flag: '🇬🇧', name: 'United Kingdom' },
 }
 
-const DEPT_SLUG: Record<Region, string> = { PH: 'ph', EU: 'eu', SA: 'sa', UK: 'uk' }
+const DEPT_SLUG: Record<Region, string> = { PH: 'ph', EU: 'eu', SA: 'sa' }
 
 function DepartmentRow({ dept }: { dept: DepartmentMovement }) {
   const label = REGION_LABEL[dept.region]

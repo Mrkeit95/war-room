@@ -9,7 +9,7 @@ export default function ReplicateGradingButton() {
 
   const onClick = () => {
     if (pending) return
-    if (!window.confirm('Replicate the PH grading columns to EU, SA, and UK boards? This adds new columns on those boards — idempotent (skips columns that already exist).')) return
+    if (!window.confirm('Replicate the PH grading columns to EU and SA boards? This adds new columns on those boards — idempotent (skips columns that already exist).')) return
     setResult(null)
     startTransition(async () => {
       const r = await replicateGradingColumns()

@@ -13,6 +13,7 @@ import {
   getStageDeltas,
   getManagerActivity,
   getDepartmentMovements,
+  getRegionMovementWindows,
 } from '@/lib/db'
 import type { Region } from '@/lib/candidates'
 import { displayName, PH_SECTION_MANAGERS, GROUP_ORDER, OVERSEERS, BOARD_TO_AE } from '@/lib/manager_sections'
@@ -38,7 +39,7 @@ function pctStr(n: number | null | undefined): string {
 
 async function buildContext(): Promise<string> {
   const supabase = createAdminClient()
-  const regions: Region[] = ['PH', 'EU', 'SA', 'UK']
+  const regions: Region[] = ['PH', 'EU', 'SA']
   const [
     stats,
     briefing,
@@ -55,10 +56,10 @@ async function buildContext(): Promise<string> {
     deptMovements,
     stageDeltas,
     managerActivity,
+    movementWindowsData,
     stalePH,
     staleEU,
     staleSA,
-    staleUK,
   ] = await Promise.all([
     getDashboardStats(),
     getBriefingData(),
@@ -69,29 +70,30 @@ async function buildContext(): Promise<string> {
     getLastSyncedAt(),
     getRecentMovements(40),
     listCandidates({ limit: 5000 }),
-    // page_board_map — real columns only (no `goal`, `pod_label`, `manager`)
     supabase.from('page_board_map')
       .select('page_name, board_name, running_sales, active, agency, handle, inflow_username')
       .order('running_sales', { ascending: false, nullsFirst: false })
       .limit(500),
-    // page_assignments — pod, team, shift, chatter linkage
     supabase.from('page_assignments')
       .select('page_name, pod, team, shift_name, chatter_name, group_title')
       .not('pod', 'is', null)
       .limit(2000),
-    // models — agency, page_type, board, AE, telegram, revenue, status
     supabase.from('models')
       .select('name, agency, page_type, board, ae, revenue, status, telegram_group, group_title')
       .limit(2000),
     getDepartmentMovements(),
     getStageDeltas(1),
     getManagerActivity(),
+    getRegionMovementWindows(),
     getStaleCandidates('PH', 5, 50),
     getStaleCandidates('EU', 5, 50),
     getStaleCandidates('SA', 5, 50),
-    getStaleCandidates('UK', 5, 50),
   ])
-  const staleByRegion: Record<Region, typeof stalePH> = { PH: stalePH, EU: staleEU, SA: staleSA, UK: staleUK }
+  const staleByRegion: Record<Region, typeof stalePH> = { PH: stalePH, EU: staleEU, SA: staleSA }
+
+  // Belt-and-suspenders: some UK rows may still exist in Supabase from before the department
+  // was closed. Filter them out everywhere the AI can see them, regardless of DB state.
+  const isActiveRegion = (r: string | null | undefined): boolean => r === 'PH' || r === 'EU' || r === 'SA'
 
   const lines: string[] = []
   lines.push('═══ WAR ROOM LIVE STATE ═══')
@@ -239,27 +241,50 @@ async function buildContext(): Promise<string> {
     lines.push('')
   }
 
-  // Candidate directory (compact)
-  lines.push(`─── CANDIDATE DIRECTORY (${allCandidates.length}) ───`)
+  // Candidate directory (compact) — UK filtered out (closed department)
+  const activeCandidates = allCandidates.filter(c => isActiveRegion(c.region))
+  lines.push(`─── CANDIDATE DIRECTORY (${activeCandidates.length}) ───`)
   lines.push('name | region | stage | tier | track | manager')
-  for (const c of allCandidates) {
+  for (const c of activeCandidates) {
     if (c.current_stage === 'offboarded') continue
     lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? c.current_stage} | ${c.tier ?? '—'} | ${c.track ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'}`)
   }
   lines.push('')
 
-  // Recent movements
-  lines.push(`─── RECENT STAGE MOVEMENTS (last ${recentMoves.length}) ───`)
-  for (const m of recentMoves) {
+  // Recent movements — UK filtered out
+  const activeRecentMoves = recentMoves.filter(m => isActiveRegion(m.region))
+  lines.push(`─── RECENT STAGE MOVEMENTS (last ${activeRecentMoves.length}) ───`)
+  for (const m of activeRecentMoves) {
     lines.push(`${m.detectedAt} · ${m.candidateName} (${m.region}): ${m.fromStage ?? '∅'} → ${m.toStage}`)
   }
   lines.push('')
 
-  // Department-level movements (per region)
+  // Department-level movements (24h — kept for narrow "yesterday" questions)
   lines.push('─── DEPARTMENT MOVEMENTS (24h) ───')
   lines.push('region | inPipeline | new24h | trans24h | →training | →standby | →active | offboarded')
   for (const d of deptMovements) {
     lines.push(`${d.region} | ${d.inPipeline} | ${d.newLast24h} | ${d.transitions24h} | ${d.enteredTraining24h} | ${d.enteredStandby24h} | ${d.enteredActive24h} | ${d.offboarded24h}`)
+  }
+  lines.push('')
+
+  // Multi-window movements per region (24h / 7d / 14d / 30d / all-time)
+  lines.push('─── MOVEMENTS BY WINDOW (transitions INTO each bucket, per region) ───')
+  lines.push('region | window | →active | →standby | →training | →offboarded | total transitions')
+  for (const w of movementWindowsData.windows) {
+    const c = w.counts
+    lines.push(`${w.region} | ${w.window.padEnd(4)} | ${c.toActive} | ${c.toStandby} | ${c.toTraining} | ${c.toOffboarded} | ${c.total}`)
+  }
+  lines.push('')
+
+  // Named movements — every transition ever (UK filtered out), so the AI can list "who moved to X in the last N days"
+  const activeMovements = movementWindowsData.movements.filter(m => isActiveRegion(m.region))
+  lines.push(`─── NAMED MOVEMENTS (all-time, ${activeMovements.length} transitions, newest first) ───`)
+  lines.push('date | region | name | from → to')
+  for (const m of activeMovements.slice(0, 800)) {
+    lines.push(`${m.detectedAt.slice(0, 10)} | ${m.region} | ${m.candidateName} | ${m.fromStage ?? '∅'} → ${m.toStage}`)
+  }
+  if (activeMovements.length > 800) {
+    lines.push(`… ${activeMovements.length - 800} older transitions truncated (still counted in the window totals above)`)
   }
   lines.push('')
 
@@ -324,7 +349,7 @@ async function buildContext(): Promise<string> {
   lines.push('Interview/training rotation: interview week and training week alternate — managers cannot do both in the same week.')
   lines.push('Active vs blank checkbox: a page is "active" unless explicitly marked FALSE. Blank/NULL = active.')
   lines.push('Boards: BOARD 1, BOARD 2, BOARD 3, TRAINING BOARD, TOWER. Pages live under boards; chatters work pages.')
-  lines.push('Regions: PH (Philippines), EU (Europe), SA (South America), UK (United Kingdom). Each has its own Monday board.')
+  lines.push('Regions: PH (Philippines), EU (Europe), SA (South America). The UK department was closed and is no longer part of the business — never mention UK or Noah Whall unless the user explicitly asks about the closed dept.')
   lines.push('Stages live in current_group_title (raw Monday) and current_stage (normalized). The directory above uses raw Monday titles.')
 
   return lines.join('\n')
@@ -353,7 +378,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reply: `Couldn't load War Room data: ${(e as Error).message}` }, { status: 500 })
   }
 
-  const system = `You are Keit Dmitrijev's chief-of-staff analyst inside The War Room — the operating system for his multi-region OnlyFans chat agency (PH, EU, SA, UK). You have the FULL current state of the War Room below. Your job is to be the analyst who actually tells him what to do, not the assistant that hedges.
+  const system = `You are Keit Dmitrijev's chief-of-staff analyst inside The War Room — the operating system for his multi-region OnlyFans chat agency (PH, EU, SA). You have the FULL current state of the War Room below. Your job is to be the analyst who actually tells him what to do, not the assistant that hedges.
 
 ${context}
 
@@ -373,9 +398,11 @@ WHAT YOU SHOULD DO PROACTIVELY
 ANSWERING RULES
 - The data above IS ground truth. Use it. Don't invent names, numbers, stages, or relationships.
 - BUT — be FUZZY on user input. If Keit types "Sebastien" and the directory has "Juan Sebastian Gonzalez Perez," that's the same person (English vs French spelling, partial name, casual nickname → match it). Same goes for "Andrei" matching "Andrei Angelo Cando", "Pamela" matching "Pamela Amuro Miña", etc. ALWAYS attempt a partial/fuzzy match on names before saying "not found".
-- The ORG STRUCTURE section is the source of truth for who is a manager. Juan Sebastian Gonzalez Perez (SA Head), Aleksandar Simic (EU Head), Noah Whall (UK Head), and the PH section managers ARE managers even if they don't appear elsewhere — never say "no such manager" if they're in the org structure.
+- The ORG STRUCTURE section is the source of truth for who is a manager. Juan Sebastian Gonzalez Perez (SA Head), Aleksandar Simic (EU Head), and the PH section managers ARE managers even if they don't appear elsewhere — never say "no such manager" if they're in the org structure.
 - "Where is X?" → fuzzy-match the name. Report region, stage, manager, tier (and revenue if a page). If X is a manager, report their role, what region/section they own, and how their team is performing.
 - "What pages are on POD X?" / "Who chats POD X?" → use the PODS section (pod → page roster) and POD SHIFT SCHEDULE (page × shift × chatter). Pods are A through J. Teams are T1-T4 within each pod.
+- "How many moved to X in the last N days?" / "Who moved to active/standby in the last 14 days?" / "What's happened over time?" → use MOVEMENTS BY WINDOW for aggregate counts (24h, 7d, 14d, 30d, all-time) and NAMED MOVEMENTS to list the specific candidates. If N doesn't exactly match a bucket, use the closest bucket + explain (e.g. "using 14d window as the closest bucket").
+- For custom windows not in the buckets (e.g. "last 21 days"), filter NAMED MOVEMENTS by date manually and recount.
 - "Who is the AE / agency / chat manager for [page]?" → use ACTIVE PAGES (which has AE + agency + page type) joined with the model metadata. If a page isn't in the revenue tracker but is in models, check ACTIVE MODELS NOT IN REVENUE TRACKER.
 - For aggregates, recompute from the data; show 1-2 numbers as proof so Keit can sanity-check, then give your verdict.
 - Tier scale is INVERTED: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.

@@ -7,7 +7,7 @@ import type { Region } from '@/lib/candidates'
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-const REGIONS = new Set(['PH', 'EU', 'SA', 'UK'])
+const REGIONS = new Set(['PH', 'EU', 'SA'])
 const BUCKETS = new Set(['typeform', 'passed', 'pending', 'scheduled', 'training', 'standby', 'active'])
 const GRADES = new Set(['A', 'B', 'C', 'D', 'F'])
 

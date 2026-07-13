@@ -79,9 +79,9 @@ export async function getDashboardStats() {
   )
 
   const byRegion: Record<Region, Record<Exclude<UiBucket, null>, number>> = {
-    PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(), UK: emptyBucket(),
+    PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(),
   }
-  const offboardedByRegion: Record<Region, number> = { PH: 0, EU: 0, SA: 0, UK: 0 }
+  const offboardedByRegion: Record<Region, number> = { PH: 0, EU: 0, SA: 0 }
   let inPipeline = 0
   let totalAll = 0
 
@@ -99,9 +99,9 @@ export async function getDashboardStats() {
   }
 
   const sumBucket = (b: Exclude<UiBucket, null>) =>
-    byRegion.PH[b] + byRegion.EU[b] + byRegion.SA[b] + byRegion.UK[b]
+    byRegion.PH[b] + byRegion.EU[b] + byRegion.SA[b]
 
-  const offboardedTotal = offboardedByRegion.PH + offboardedByRegion.EU + offboardedByRegion.SA + offboardedByRegion.UK
+  const offboardedTotal = offboardedByRegion.PH + offboardedByRegion.EU + offboardedByRegion.SA
 
   return {
     total: inPipeline,
@@ -379,7 +379,7 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
 
   // Per-region bucket counters for bottleneck detection
   const bucketCounts: Record<Region, Record<Exclude<UiBucket, null>, number>> = {
-    PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(), UK: emptyBucket(),
+    PH: emptyBucket(), EU: emptyBucket(), SA: emptyBucket(),
   }
 
   for (const c of data) {
@@ -481,7 +481,7 @@ export async function getCurrentAlerts(): Promise<Alert[]> {
   }
 
   // Region-level bottleneck detection (pending_interview > 6 per region = warning)
-  for (const region of ['PH', 'EU', 'SA', 'UK'] as Region[]) {
+  for (const region of ['PH', 'EU', 'SA'] as Region[]) {
     const pending = bucketCounts[region].pending
     if (pending >= 6) {
       alerts.push({
@@ -557,7 +557,7 @@ export type DepartmentMovement = {
   offboarded24h: number
 }
 
-const REGIONS: Region[] = ['PH', 'EU', 'SA', 'UK']
+const REGIONS: Region[] = ['PH', 'EU', 'SA']
 
 export async function getDepartmentMovements(): Promise<DepartmentMovement[]> {
   const supabase = createAdminClient()
@@ -575,7 +575,6 @@ export async function getDepartmentMovements(): Promise<DepartmentMovement[]> {
     PH: { region: 'PH', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
     EU: { region: 'EU', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
     SA: { region: 'SA', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
-    UK: { region: 'UK', inPipeline: 0, newLast24h: 0, transitions24h: 0, enteredTraining24h: 0, enteredStandby24h: 0, enteredActive24h: 0, offboarded24h: 0 },
   }
 
   for (const c of candidates) {
@@ -1050,4 +1049,122 @@ export async function getLastSyncedAt(): Promise<string | null> {
     .limit(1)
     .maybeSingle()
   return (data?.finished_at as string | null) ?? null
+}
+
+// ---------------------------------------------------------------------------
+// Multi-window movements (24h / 7d / 14d / 30d / all-time) per region
+// ---------------------------------------------------------------------------
+
+export type MovementWindow = '24h' | '7d' | '14d' | '30d' | 'all'
+export type MovementCounts = {
+  toActive: number
+  toStandby: number
+  toTraining: number
+  toOffboarded: number
+  total: number           // any transition to any stage
+}
+export type RegionMovementWindow = { region: Region; window: MovementWindow; counts: MovementCounts }
+export type NamedMovement = {
+  region: Region
+  candidateName: string
+  fromStage: CanonicalStage | null
+  toStage: CanonicalStage
+  toBucket: UiBucket
+  detectedAt: string      // ISO
+}
+
+const WINDOW_MS: Record<Exclude<MovementWindow, 'all'>, number> = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '14d': 14 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000,
+}
+
+/**
+ * Every stage transition since a given moment, joined to the candidate for name+region.
+ * `since` = null → all-time. Paginated so we never hit PostgREST's 1000-row cap.
+ */
+export async function getMovementsSince(since: string | null): Promise<NamedMovement[]> {
+  const supabase = createAdminClient()
+  type Row = {
+    id: string
+    from_stage: CanonicalStage | null
+    to_stage: CanonicalStage
+    detected_at: string
+    candidates: { name: string; region: Region } | { name: string; region: Region }[]
+  }
+  const rows = await fetchAllPaged<Row>((from, to) => {
+    let q = supabase
+      .from('stage_transitions')
+      .select('id, from_stage, to_stage, detected_at, candidates!inner(name, region)')
+      .order('detected_at', { ascending: false })
+      .range(from, to)
+    if (since) q = q.gte('detected_at', since)
+    return q
+  })
+  return rows.map(r => {
+    const cand = Array.isArray(r.candidates) ? r.candidates[0] : r.candidates
+    return {
+      region: cand.region,
+      candidateName: cand.name,
+      fromStage: r.from_stage,
+      toStage: r.to_stage,
+      toBucket: uiBucket(r.to_stage),
+      detectedAt: r.detected_at,
+    }
+  })
+}
+
+/**
+ * Roll every-window counts per region in one pass over the all-time transitions.
+ * Returns per-region rows for 24h/7d/14d/30d/all-time. Also returns the raw movements
+ * for callers that need to list names (e.g. "who moved to active in the last 14d").
+ */
+export async function getRegionMovementWindows(): Promise<{
+  windows: RegionMovementWindow[]
+  movements: NamedMovement[]
+}> {
+  const all = await getMovementsSince(null)
+  const now = Date.now()
+
+  const emptyCounts = (): MovementCounts => ({ toActive: 0, toStandby: 0, toTraining: 0, toOffboarded: 0, total: 0 })
+  const regions: Region[] = ['PH', 'EU', 'SA']
+  const windows: MovementWindow[] = ['24h', '7d', '14d', '30d', 'all']
+
+  const acc: Record<Region, Record<MovementWindow, MovementCounts>> = {
+    PH: { '24h': emptyCounts(), '7d': emptyCounts(), '14d': emptyCounts(), '30d': emptyCounts(), all: emptyCounts() },
+    EU: { '24h': emptyCounts(), '7d': emptyCounts(), '14d': emptyCounts(), '30d': emptyCounts(), all: emptyCounts() },
+    SA: { '24h': emptyCounts(), '7d': emptyCounts(), '14d': emptyCounts(), '30d': emptyCounts(), all: emptyCounts() },
+  }
+
+  for (const m of all) {
+    if (!regions.includes(m.region)) continue
+    const ageMs = now - new Date(m.detectedAt).getTime()
+    const bucket = m.toBucket
+    const isActive = bucket === 'active'
+    const isStandby = bucket === 'standby'
+    const isTraining = bucket === 'training'
+    const isOffboarded = m.toStage === 'offboarded'
+    const inWindow: MovementWindow[] = ['all']
+    if (ageMs <= WINDOW_MS['30d']) inWindow.push('30d')
+    if (ageMs <= WINDOW_MS['14d']) inWindow.push('14d')
+    if (ageMs <= WINDOW_MS['7d']) inWindow.push('7d')
+    if (ageMs <= WINDOW_MS['24h']) inWindow.push('24h')
+    for (const w of inWindow) {
+      const c = acc[m.region][w]
+      c.total += 1
+      if (isActive) c.toActive += 1
+      if (isStandby) c.toStandby += 1
+      if (isTraining) c.toTraining += 1
+      if (isOffboarded) c.toOffboarded += 1
+    }
+  }
+
+  const flat: RegionMovementWindow[] = []
+  for (const r of regions) {
+    for (const w of windows) {
+      flat.push({ region: r, window: w, counts: acc[r][w] })
+    }
+  }
+  return { windows: flat, movements: all }
 }

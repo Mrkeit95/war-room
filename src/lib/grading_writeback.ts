@@ -15,13 +15,12 @@
 
 import { findColumnId, fetchBoardColumnsDetailed, setNumberColumnValue, setStatusColumnValue, type ParsedGrade } from './monday'
 
-type Region = 'PH' | 'EU' | 'SA' | 'UK'
+type Region = 'PH' | 'EU' | 'SA'
 
 const REGION_BOARD_ENV: Record<Region, string> = {
   PH: 'MONDAY_BOARD_ID_PH',
   EU: 'MONDAY_BOARD_ID_EU',
   SA: 'MONDAY_BOARD_ID_SA',
-  UK: 'MONDAY_BOARD_ID_UK',
 }
 
 const RATING_KEYS: (keyof ParsedGrade)[] = [

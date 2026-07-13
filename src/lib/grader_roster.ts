@@ -35,10 +35,9 @@ export const GRADER_ROSTER: GraderEntry[] = [
   { name: 'Angie Toro', displayName: 'Angie Toro', role: 'AE · BOARD 2', group: 'AEs' },
   { name: 'Iori Vukotic', displayName: 'Iori Vukotic', role: 'AE · BOARD 3', group: 'AEs' },
 
-  // Regional heads (sole owners of EU/SA/UK)
+  // Regional heads (sole owners of EU/SA)
   { name: 'Aleksandar Simic', displayName: 'Aleksandar Simic', role: 'EU Head', group: 'Regional heads' },
   { name: 'JUAN SEBASTIAN GONZALEZ PEREZ', displayName: 'Juan Sebastian Gonzalez Perez', role: 'SA Head', group: 'Regional heads' },
-  { name: 'noah whall', displayName: 'Noah Whall', role: 'UK Head', group: 'Regional heads' },
 
   // Owner
   { name: 'Keit', displayName: 'Keit (Owner)', role: 'Owner', group: 'Owner' },

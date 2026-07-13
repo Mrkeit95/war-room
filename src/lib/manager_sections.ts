@@ -76,16 +76,6 @@ export const GROUP_ORDER: Record<Region, string[]> = {
     'STANDBY',
     'OFFBOARDED',
   ],
-  UK: [
-    'TYPEFORM',
-    'PASSED- TYPEFORMS',
-    'PENDING- INTERVIEWS',
-    'SCHEDULED- INTERVIEWS',
-    'WEEK 1- TRAINING',
-    'WEEK 2- TRAINING',
-    'STANDBY',
-    'OFFBOARDED',
-  ],
 }
 
 export function groupOrderIndex(region: Region, groupTitle: string | null | undefined): number {
@@ -98,7 +88,6 @@ export function groupOrderIndex(region: Region, groupTitle: string | null | unde
 export const REGION_SOLE_OWNER: Partial<Record<Region, string>> = {
   EU: 'Aleksandar Simic',
   SA: 'JUAN SEBASTIAN GONZALEZ PEREZ',
-  UK: 'noah whall',
 }
 
 /** Shift schedules across the team (PHT). PH trainer shifts converted from EDT +12h. */
@@ -176,10 +165,6 @@ export const MANAGER_SHIFTS: Record<string, ShiftConfig> = {
     label: 'SA head',
     blocks: [{ day: 'Mon–Fri', start: '8am', end: '4pm' }],
   },
-  'noah whall': {
-    label: 'UK head',
-    blocks: [{ day: 'Mon–Fri', start: '1pm', end: '9pm' }],
-  },
   'Aleksandar Simic': {
     label: 'EU head',
     blocks: [
@@ -198,7 +183,6 @@ export const PH_TRAINER_SHIFTS = MANAGER_SHIFTS
 /** Pretty-name overrides for Monday strings that are lowercase / all-caps. */
 export const MANAGER_DISPLAY_NAMES: Record<string, string> = {
   'apple baez': 'Apple Baez',
-  'noah whall': 'Noah Whall',
   'JUAN SEBASTIAN GONZALEZ PEREZ': 'Juan Sebastian Gonzalez Perez',
 }
 

@@ -73,7 +73,7 @@ export async function runSync(triggeredBy: 'cron' | 'manual' | 'api' = 'manual')
       }),
       fetchAllGradingSubitems().catch(err => {
         warnings.push(`Grading subitems fetch failed: ${err instanceof Error ? err.message : String(err)}`)
-        return [] as { region: 'PH' | 'EU' | 'SA' | 'UK'; subitems: ParsedGrade[] }[]
+        return [] as { region: 'PH' | 'EU' | 'SA'; subitems: ParsedGrade[] }[]
       }),
     ])
     const fetchMs = Date.now() - tFetch

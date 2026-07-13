@@ -138,10 +138,10 @@ export default function SettingsPage() {
             <Section title="Advanced" desc="Destructive actions.">
               <Field label="Export all data"><Button ghost>Export</Button></Field>
               <Field label="Resync everything"><Button ghost>Resync</Button></Field>
-              <Field label="Replicate grading columns to EU / SA / UK" sub="Copies PH's grading column structure (parent + subitem) to the other region boards. Idempotent.">
+              <Field label="Replicate grading columns to EU / SA" sub="Copies PH's grading column structure (parent + subitem) to the other region boards. Idempotent.">
                 <ReplicateGradingButton />
               </Field>
-              <Field label="Verify column parity" sub="Compare EU / SA / UK against PH and surface any missing columns, type mismatches, or differing dropdown options. Needed so chatter grades survive a board move.">
+              <Field label="Verify column parity" sub="Compare EU / SA against PH and surface any missing columns, type mismatches, or differing dropdown options. Needed so chatter grades survive a board move.">
                 <VerifyColumnsButton />
               </Field>
               <Field label="Seed monthly grade subitems on active chatters" sub="One-click: creates a subitem named after the current month on every chatter in the ACTIVE Monday group, so managers don't have to click '+ Add subitem' on 400+ rows. Idempotent — skips chatters who already have one this month.">

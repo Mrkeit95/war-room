@@ -9,7 +9,6 @@ const REGIONS: { code: Region; flag: string; name: string }[] = [
   { code: 'PH', flag: '🇵🇭', name: 'Philippines' },
   { code: 'EU', flag: '🇪🇺', name: 'Europe' },
   { code: 'SA', flag: '🇨🇴', name: 'South America' },
-  { code: 'UK', flag: '🇬🇧', name: 'United Kingdom' },
 ]
 
 type ApiCandidate = {

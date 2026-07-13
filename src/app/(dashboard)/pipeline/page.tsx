@@ -39,7 +39,7 @@ export default async function PipelinePage() {
 
   const totalCount = (b: Bucket) => {
     if (!stats) return 0
-    return stats.byRegion.PH[b] + stats.byRegion.EU[b] + stats.byRegion.SA[b] + stats.byRegion.UK[b]
+    return stats.byRegion.PH[b] + stats.byRegion.EU[b] + stats.byRegion.SA[b]
   }
 
   return (

@@ -2,7 +2,7 @@ import type { Region } from './candidates'
 
 export type RegionPhase = 'interview' | 'training' | null
 
-// Anchor: Monday of the week where EU+SA = training, UK = interview.
+// Anchor: Monday of the week where EU+SA = training.
 // Parity flips every Monday. See memory/project_rotation.md.
 const ANCHOR_WEEK_START = new Date('2026-05-18T00:00:00')
 const MS_PER_DAY = 86_400_000
@@ -27,11 +27,8 @@ export function getRegionPhase(region: Region, date: Date = new Date()): RegionP
   const weeks = weeksSinceAnchor(date)
   const parity = ((Math.trunc(weeks) % 2) + 2) % 2
   const onAnchorParity = parity === 0
-  if (region === 'EU' || region === 'SA') {
-    return onAnchorParity ? 'training' : 'interview'
-  }
-  // UK
-  return onAnchorParity ? 'interview' : 'training'
+  // EU + SA (only remaining non-PH regions)
+  return onAnchorParity ? 'training' : 'interview'
 }
 
 export function phaseLabel(phase: RegionPhase): string {

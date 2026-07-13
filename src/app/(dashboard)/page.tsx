@@ -39,7 +39,6 @@ async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number;
     PH: { strong: 0, weak: 0 },
     EU: { strong: 0, weak: 0 },
     SA: { strong: 0, weak: 0 },
-    UK: { strong: 0, weak: 0 },
   }
   // Paginate — PostgREST caps responses at 1000 rows.
   let from = 0
@@ -65,7 +64,7 @@ async function fetchRegionTierCounts(): Promise<Record<Region, { strong: number;
 export default async function DashboardPage({ searchParams }: { searchParams?: Promise<{ region?: string }> }) {
   const params = searchParams ? await searchParams : {}
   const regionFilterRaw = params.region?.toUpperCase()
-  const regionFilter: Region | null = regionFilterRaw && ['PH', 'EU', 'SA', 'UK'].includes(regionFilterRaw) ? regionFilterRaw as Region : null
+  const regionFilter: Region | null = regionFilterRaw && ['PH', 'EU', 'SA'].includes(regionFilterRaw) ? regionFilterRaw as Region : null
   let stats: Awaited<ReturnType<typeof getDashboardStats>> | null = null
   let lastSyncedAt: string | null = null
   let topPerformers: CandidateSummary[] = []
@@ -90,7 +89,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
   const info = visibleAlerts.filter(a => a.severity === 'info')
 
   const phShare = stats ? (() => {
-    const regionTotals = ['PH', 'EU', 'SA', 'UK'].map(r => {
+    const regionTotals = ['PH', 'EU', 'SA'].map(r => {
       const b = stats!.byRegion[r as Region]
       return b.typeform + b.passed + b.pending + b.scheduled + b.training + b.standby + b.active
     })
@@ -100,7 +99,7 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
 
   const fmt = (n: number | undefined) => n === undefined ? '—' : n.toLocaleString()
   const heroCards = [
-    { label: 'In pipeline', value: fmt(stats?.inPipeline), meta: 'across 4 regions', delta: '', pct: stats ? Math.min(100, Math.round(stats.inPipeline / 15)) : 78, color: 'var(--green)', href: '/pipeline' },
+    { label: 'In pipeline', value: fmt(stats?.inPipeline), meta: 'across 3 regions', delta: '', pct: stats ? Math.min(100, Math.round(stats.inPipeline / 15)) : 78, color: 'var(--green)', href: '/pipeline' },
     { label: 'Interviews', value: fmt(stats?.interviews), meta: 'pending + scheduled', delta: '', pct: stats ? Math.min(100, Math.round(stats.interviews / 0.6)) : 64, color: 'var(--yellow)', deltaColor: 'var(--text-3)', href: '/?interviews=1' },
     { label: 'In training', value: fmt(stats?.inTraining), meta: 'across all weeks', delta: '', pct: stats ? Math.min(100, Math.round(stats.inTraining / 2.5)) : 85, color: 'var(--green)', deltaColor: 'var(--text-3)', href: '/pipeline' },
     { label: 'Active hires', value: fmt(stats?.activeHires), meta: 'active + promoted + PTO', delta: '', pct: stats ? Math.min(100, Math.round(stats.activeHires / 5)) : 92, color: 'var(--green)', href: '/pipeline' },
@@ -143,12 +142,11 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
       </div>
 
       {/* Department cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 32 }}>
         {[
           { flag: '🇵🇭', name: 'Philippines', manager: 'Apple · Darla · Pauline', color: 'var(--amber)', slug: 'ph', region: 'PH' as Region },
           { flag: '🇪🇺', name: 'Europe', manager: 'Aleksandar', color: 'var(--green)', slug: 'eu', region: 'EU' as Region },
           { flag: '🇨🇴', name: 'South America', manager: 'Sebastien', color: 'var(--amber)', slug: 'sa', region: 'SA' as Region },
-          { flag: '🇬🇧', name: 'United Kingdom', manager: 'Noah', color: 'var(--red)', slug: 'uk', region: 'UK' as Region },
         ].map((dept) => {
           const phase = getRegionPhase(dept.region)
           const buckets = stats?.byRegion[dept.region]
@@ -223,7 +221,6 @@ export default async function DashboardPage({ searchParams }: { searchParams?: P
             <RegionChip label="🇵🇭 PH" href="/?region=PH" active={regionFilter === 'PH'} />
             <RegionChip label="🇪🇺 EU" href="/?region=EU" active={regionFilter === 'EU'} />
             <RegionChip label="🇨🇴 SA" href="/?region=SA" active={regionFilter === 'SA'} />
-            <RegionChip label="🇬🇧 UK" href="/?region=UK" active={regionFilter === 'UK'} />
           </div>
           {visibleAlerts.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-4)', fontStyle: 'italic', padding: '10px 0' }}>
