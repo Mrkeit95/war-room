@@ -146,23 +146,29 @@ type ListOpts = {
 
 export async function listCandidates(opts: ListOpts = {}): Promise<DbCandidate[]> {
   const supabase = createAdminClient()
+  const targetLimit = opts.limit ?? 100
+  // If caller wants > PostgREST's default cap (1000), paginate. Otherwise single-shot.
+  if (targetLimit > 1000) {
+    const rows = await fetchAllPaged<DbCandidate>((from, to) => {
+      let q = supabase.from('candidates').select(CANDIDATE_SELECT)
+      if (opts.region) q = q.eq('region', opts.region)
+      let stageFilter: CanonicalStage[] | null = opts.stages ?? null
+      if (!stageFilter && opts.bucket) stageFilter = stagesForBucket(opts.bucket)
+      if (stageFilter && stageFilter.length > 0) q = q.in('current_stage', stageFilter)
+      else if (opts.excludeOffboarded !== false) q = q.neq('current_stage', 'offboarded')
+      q = q.order('monday_updated_at', { ascending: false, nullsFirst: false }).range(from, to)
+      return q as unknown as PromiseLike<PageResult<DbCandidate>>
+    })
+    return rows.slice(0, targetLimit)
+  }
+
   let query = supabase.from('candidates').select(CANDIDATE_SELECT)
-
   if (opts.region) query = query.eq('region', opts.region)
-
   let stageFilter: CanonicalStage[] | null = opts.stages ?? null
-  if (!stageFilter && opts.bucket) {
-    stageFilter = stagesForBucket(opts.bucket)
-  }
-  if (stageFilter && stageFilter.length > 0) {
-    query = query.in('current_stage', stageFilter)
-  } else if (opts.excludeOffboarded !== false) {
-    query = query.neq('current_stage', 'offboarded')
-  }
-
-  query = query.order('monday_updated_at', { ascending: false, nullsFirst: false })
-  query = query.limit(opts.limit ?? 100)
-
+  if (!stageFilter && opts.bucket) stageFilter = stagesForBucket(opts.bucket)
+  if (stageFilter && stageFilter.length > 0) query = query.in('current_stage', stageFilter)
+  else if (opts.excludeOffboarded !== false) query = query.neq('current_stage', 'offboarded')
+  query = query.order('monday_updated_at', { ascending: false, nullsFirst: false }).limit(targetLimit)
   const { data, error } = await query
   if (error) throw new Error(`listCandidates: ${error.message}`)
   return (data ?? []) as DbCandidate[]
@@ -1248,18 +1254,18 @@ export async function getRegionMovementWindows(): Promise<{
   }
 
   // "Current in bucket" — snapshot of who's in each bucket right now.
+  // MUST paginate because PostgREST caps single responses at 1000 rows regardless of .limit().
   // Same for every window (windows only affect movement counts, not current state).
-  const { data: currentAll } = await supabase
-    .from('candidates')
-    .select('region, current_stage')
-    .in('region', regions as string[])
-    .limit(20000)
+  type SnapshotRow = { name: string; region: Region; current_stage: CanonicalStage }
+  const currentAllPaged = await fetchAllPaged<SnapshotRow>((from, to) =>
+    supabase.from('candidates').select('name, region, current_stage').range(from, to),
+  )
   const currentByRegion: Record<Region, { active: number; standby: number; training: number; offboarded: number }> = {
     PH: { active: 0, standby: 0, training: 0, offboarded: 0 },
     EU: { active: 0, standby: 0, training: 0, offboarded: 0 },
     SA: { active: 0, standby: 0, training: 0, offboarded: 0 },
   }
-  for (const c of (currentAll ?? []) as { region: Region; current_stage: CanonicalStage }[]) {
+  for (const c of currentAllPaged) {
     if (!regions.includes(c.region)) continue
     if (c.current_stage === 'offboarded') { currentByRegion[c.region].offboarded += 1; continue }
     const b = uiBucket(c.current_stage)
@@ -1277,16 +1283,10 @@ export async function getRegionMovementWindows(): Promise<{
     SA: { '24h': {active:new Set(),standby:new Set(),training:new Set()}, '7d': {active:new Set(),standby:new Set(),training:new Set()}, '14d': {active:new Set(),standby:new Set(),training:new Set()}, '30d': {active:new Set(),standby:new Set(),training:new Set()}, all: {active:new Set(),standby:new Set(),training:new Set()} },
   }
 
-  // Currently-in-bucket → present in every window
-  const { data: withNames } = await supabase
-    .from('candidates')
-    .select('name, region, current_stage')
-    .in('region', regions as string[])
-    .limit(20000)
-  for (const c of (withNames ?? []) as { name: string; region: Region; current_stage: CanonicalStage }[]) {
+  // Currently-in-bucket → present in every window. Reuses the paginated snapshot above.
+  for (const c of currentAllPaged) {
     if (!regions.includes(c.region)) continue
     const b = uiBucket(c.current_stage)
-    if (!b || b === null) continue
     if (b !== 'active' && b !== 'standby' && b !== 'training') continue
     for (const w of windows) wasInBucket[c.region][w][b].add(c.name)
   }
