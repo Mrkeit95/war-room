@@ -290,16 +290,26 @@ async function buildContext(): Promise<string> {
   }
   lines.push('')
 
-  // Multi-window movements per region (24h / 7d / 14d / 30d / all-time)
-  // NOTE: counts fresh Monday arrivals (candidates created directly into a bucket without a
-  // recorded transition) in addition to stage transitions — so "→training" includes both
-  // "existing candidate promoted to training" AND "new candidate added straight into training".
-  lines.push('─── MOVEMENTS BY WINDOW (arrivals INTO each bucket, per region — includes fresh Monday adds) ───')
-  lines.push('region | window | →active | →standby | →training | →offboarded | total transitions')
+  // Region × window metrics — three different lenses on each bucket:
+  //  →X = arrivals INTO the bucket during the window (transitions + fresh Monday adds).
+  //  In-X = candidates who were in the bucket at ANY point during the window (union of
+  //         currently-in-bucket + transitioned-out-of-bucket-in-window). This is the number
+  //         operators actually mean when they say "we had 30 in training last week".
+  //  now-X = candidates currently in the bucket (same across every window).
+  lines.push('─── REGION × WINDOW METRICS ───')
+  lines.push('region | window | now-training | in-training | →training | now-standby | in-standby | →standby | now-active | in-active | →active | →offboarded')
   for (const w of movementWindowsData.windows) {
     const c = w.counts
-    lines.push(`${w.region} | ${w.window.padEnd(4)} | ${c.toActive} | ${c.toStandby} | ${c.toTraining} | ${c.toOffboarded} | ${c.total}`)
+    lines.push(`${w.region} | ${w.window.padEnd(4)} | ${c.currentTraining} | ${c.wasInTraining} | ${c.toTraining} | ${c.currentStandby} | ${c.wasInStandby} | ${c.toStandby} | ${c.currentActive} | ${c.wasInActive} | ${c.toActive} | ${c.toOffboarded}`)
   }
+  lines.push('')
+  lines.push('READING THIS TABLE:')
+  lines.push('  now-X: candidates currently in bucket X (right now)')
+  lines.push('  in-X: candidates who were in bucket X at any point during the window — this is the "how many did we have" number')
+  lines.push('  →X: candidates who newly arrived at bucket X during the window (new intake to the bucket)')
+  lines.push('  →offboarded: candidates cut during the window (regardless of which bucket they came from)')
+  lines.push('  Example: SA 7d: now-training=8, in-training=30, →training=2, →offboarded=22 means:')
+  lines.push('    "SA has 8 in training right now, but 30 candidates were in the training pipeline this week — 22 got cut, 8 remain, 2 new arrived."')
   lines.push('')
 
   // Named movements — every transition ever (UK filtered out), so the AI can list "who moved to X in the last N days"
@@ -430,7 +440,9 @@ ANSWERING RULES
 - "How many moved to X in the last N days?" / "Who moved to active/standby in the last 14 days?" / "What's happened over time?" → use MOVEMENTS BY WINDOW for aggregate counts (24h, 7d, 14d, 30d, all-time) and NAMED MOVEMENTS to list the specific candidates. If N doesn't exactly match a bucket, use the closest bucket + explain (e.g. "using 14d window as the closest bucket").
 - For custom windows not in the buckets (e.g. "last 21 days"), filter NAMED MOVEMENTS by date manually and recount.
 - "Who was offboarded / cut?" or "who did we lose in the last week?" → count NAMED MOVEMENTS where to = 'offboarded' inside the requested window, and cross-reference OFFBOARDED CANDIDATES for the roster. The OFFBOARDED CANDIDATES section holds up to 400 most recently offboarded — for older ones, tell Keit the DB has more but they were truncated.
-- WEEKLY REPORT FORMAT (when Keit asks for a hiring/training report for his bosses): produce a report of exactly this shape per region — "PH: X new candidates entered pipeline · Y started training · Z passed to active · W to standby · N offboarded · net = +M in pipeline". Include totals across all regions at the top. Then list the concrete names for each bucket so his bosses can see who's who. Base numbers on the 7d window unless he specifies another window.
+- WEEKLY REPORT FORMAT (when Keit asks for a hiring/training report for his bosses): use the REGION × WINDOW METRICS table for the 7d window. Report BOTH "in bucket during window" AND "arrivals" AND "current" because they mean different things and operators care about all three. Shape it like this:
+  "SA: 30 in training this week (8 remain, 22 cut, 2 new). 0 promoted to active. 0 sent to standby."
+  Use in-X for the headline "how many did we have this week", →X for new intake, current for what's left, →offboarded for cuts. NEVER report only "→training" as the training number — that's just new arrivals, not the full training activity. Base on the 7d window unless Keit specifies otherwise.
 - "Who is the AE / agency / chat manager for [page]?" → use ACTIVE PAGES (which has AE + agency + page type) joined with the model metadata. If a page isn't in the revenue tracker but is in models, check ACTIVE MODELS NOT IN REVENUE TRACKER.
 - For aggregates, recompute from the data; show 1-2 numbers as proof so Keit can sanity-check, then give your verdict.
 - Tier scale is INVERTED: Tier 1 = weakest, Tier 4 = strongest. Never reverse this.

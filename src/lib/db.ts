@@ -1063,11 +1063,24 @@ export async function getLastSyncedAt(): Promise<string | null> {
 
 export type MovementWindow = '24h' | '7d' | '14d' | '30d' | 'all'
 export type MovementCounts = {
+  // ARRIVALS: candidates who newly entered the bucket during the window
+  // (either via a real stage transition, or fresh on Monday landing in that bucket).
   toActive: number
   toStandby: number
   toTraining: number
   toOffboarded: number
-  total: number           // any transition to any stage
+  total: number
+  // WAS-IN: candidates who were in the bucket at ANY point during the window.
+  // Union of: currently in bucket + transitioned OUT of bucket within window.
+  // This matches how operators think about weekly volume ("we had 30 in training last week").
+  wasInActive: number
+  wasInStandby: number
+  wasInTraining: number
+  // CURRENT: how many are in the bucket right now (as of query time). Same across all windows.
+  currentActive: number
+  currentStandby: number
+  currentTraining: number
+  currentOffboarded: number
 }
 export type RegionMovementWindow = { region: Region; window: MovementWindow; counts: MovementCounts }
 export type NamedMovement = {
@@ -1146,7 +1159,11 @@ export async function getRegionMovementWindows(): Promise<{
   const all = await getMovementsSince(null)
   const now = Date.now()
 
-  const emptyCounts = (): MovementCounts => ({ toActive: 0, toStandby: 0, toTraining: 0, toOffboarded: 0, total: 0 })
+  const emptyCounts = (): MovementCounts => ({
+    toActive: 0, toStandby: 0, toTraining: 0, toOffboarded: 0, total: 0,
+    wasInActive: 0, wasInStandby: 0, wasInTraining: 0,
+    currentActive: 0, currentStandby: 0, currentTraining: 0, currentOffboarded: 0,
+  })
   const regions: Region[] = ['PH', 'EU', 'SA']
   const windows: MovementWindow[] = ['24h', '7d', '14d', '30d', 'all']
 
@@ -1228,6 +1245,76 @@ export async function getRegionMovementWindows(): Promise<{
     const bucketKey = isInitialOff ? 'off' : (initialBucket ?? 'other')
     const key = `${c.region}|${bucketKey}|${c.name}`
     bumpBucket(c.region, ageMs, initialBucket, isInitialOff, key)
+  }
+
+  // "Current in bucket" — snapshot of who's in each bucket right now.
+  // Same for every window (windows only affect movement counts, not current state).
+  const { data: currentAll } = await supabase
+    .from('candidates')
+    .select('region, current_stage')
+    .in('region', regions as string[])
+    .limit(20000)
+  const currentByRegion: Record<Region, { active: number; standby: number; training: number; offboarded: number }> = {
+    PH: { active: 0, standby: 0, training: 0, offboarded: 0 },
+    EU: { active: 0, standby: 0, training: 0, offboarded: 0 },
+    SA: { active: 0, standby: 0, training: 0, offboarded: 0 },
+  }
+  for (const c of (currentAll ?? []) as { region: Region; current_stage: CanonicalStage }[]) {
+    if (!regions.includes(c.region)) continue
+    if (c.current_stage === 'offboarded') { currentByRegion[c.region].offboarded += 1; continue }
+    const b = uiBucket(c.current_stage)
+    if (b === 'active') currentByRegion[c.region].active += 1
+    else if (b === 'standby') currentByRegion[c.region].standby += 1
+    else if (b === 'training') currentByRegion[c.region].training += 1
+  }
+
+  // "Was in bucket during window" — union of "currently in bucket" + "transitioned OUT
+  // of bucket within window". Everyone currently in the bucket was in it at least up to now.
+  // Everyone who moved OUT within the window was in it at window-start.
+  const wasInBucket: Record<Region, Record<MovementWindow, { active: Set<string>; standby: Set<string>; training: Set<string> }>> = {
+    PH: { '24h': {active:new Set(),standby:new Set(),training:new Set()}, '7d': {active:new Set(),standby:new Set(),training:new Set()}, '14d': {active:new Set(),standby:new Set(),training:new Set()}, '30d': {active:new Set(),standby:new Set(),training:new Set()}, all: {active:new Set(),standby:new Set(),training:new Set()} },
+    EU: { '24h': {active:new Set(),standby:new Set(),training:new Set()}, '7d': {active:new Set(),standby:new Set(),training:new Set()}, '14d': {active:new Set(),standby:new Set(),training:new Set()}, '30d': {active:new Set(),standby:new Set(),training:new Set()}, all: {active:new Set(),standby:new Set(),training:new Set()} },
+    SA: { '24h': {active:new Set(),standby:new Set(),training:new Set()}, '7d': {active:new Set(),standby:new Set(),training:new Set()}, '14d': {active:new Set(),standby:new Set(),training:new Set()}, '30d': {active:new Set(),standby:new Set(),training:new Set()}, all: {active:new Set(),standby:new Set(),training:new Set()} },
+  }
+
+  // Currently-in-bucket → present in every window
+  const { data: withNames } = await supabase
+    .from('candidates')
+    .select('name, region, current_stage')
+    .in('region', regions as string[])
+    .limit(20000)
+  for (const c of (withNames ?? []) as { name: string; region: Region; current_stage: CanonicalStage }[]) {
+    if (!regions.includes(c.region)) continue
+    const b = uiBucket(c.current_stage)
+    if (!b || b === null) continue
+    if (b !== 'active' && b !== 'standby' && b !== 'training') continue
+    for (const w of windows) wasInBucket[c.region][w][b].add(c.name)
+  }
+  // Transitions OUT of a bucket within window
+  for (const m of all) {
+    if (!regions.includes(m.region)) continue
+    if (!m.fromStage) continue
+    const fromB = uiBucket(m.fromStage)
+    if (!fromB || (fromB !== 'active' && fromB !== 'standby' && fromB !== 'training')) continue
+    const ageMs = now - new Date(m.detectedAt).getTime()
+    for (const w of windows) {
+      if (w === 'all' || ageMs <= WINDOW_MS[w]) {
+        wasInBucket[m.region][w][fromB].add(m.candidateName)
+      }
+    }
+  }
+
+  // Fold everything back into acc
+  for (const r of regions) {
+    for (const w of windows) {
+      acc[r][w].wasInActive = wasInBucket[r][w].active.size
+      acc[r][w].wasInStandby = wasInBucket[r][w].standby.size
+      acc[r][w].wasInTraining = wasInBucket[r][w].training.size
+      acc[r][w].currentActive = currentByRegion[r].active
+      acc[r][w].currentStandby = currentByRegion[r].standby
+      acc[r][w].currentTraining = currentByRegion[r].training
+      acc[r][w].currentOffboarded = currentByRegion[r].offboarded
+    }
   }
 
   const flat: RegionMovementWindow[] = []
