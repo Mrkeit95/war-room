@@ -256,22 +256,78 @@ async function buildContext(): Promise<string> {
   const nonOffboarded = activeCandidates.filter(c => c.current_stage !== 'offboarded')
   const offboarded = activeCandidates.filter(c => c.current_stage === 'offboarded')
   lines.push(`─── CANDIDATE DIRECTORY (${nonOffboarded.length} in pipeline) ───`)
-  lines.push('name | region | stage | tier | track | manager')
+  lines.push('name | region | stage | tier | track | manager | source')
   for (const c of nonOffboarded) {
-    lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? c.current_stage} | ${c.tier ?? '—'} | ${c.track ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'}`)
+    lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? c.current_stage} | ${c.tier ?? '—'} | ${c.track ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'} | ${c.source ?? '—'}`)
   }
   lines.push('')
 
   // Offboarded roster — enables "who did we cut" style questions for weekly reports
   lines.push(`─── OFFBOARDED CANDIDATES (${offboarded.length} total, ever) ───`)
-  lines.push('name | region | last-group | manager | last-updated')
+  lines.push('name | region | last-group | manager | source | last-updated')
   const offboardedSorted = [...offboarded].sort((a, b) => (b.monday_updated_at ?? '').localeCompare(a.monday_updated_at ?? ''))
   for (const c of offboardedSorted.slice(0, 400)) {
-    lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'} | ${c.monday_updated_at?.slice(0, 10) ?? '—'}`)
+    lines.push(`${c.name} | ${c.region} | ${c.current_group_title ?? '—'} | ${c.assigned_manager ? displayName(c.assigned_manager) : '—'} | ${c.source ?? '—'} | ${c.monday_updated_at?.slice(0, 10) ?? '—'}`)
   }
   if (offboardedSorted.length > 400) {
     lines.push(`… ${offboardedSorted.length - 400} older offboards truncated (still counted in the total above)`)
   }
+  lines.push('')
+
+  // Source / recruiter attribution — who's bringing in candidates and how they perform.
+  // "Headhunters" per Keit: Cel, Alvin, Carol. Everything else = other sources.
+  const now = Date.now()
+  const windows: Array<{ label: string; ms: number | null }> = [
+    { label: '7d', ms: 7 * 86400000 },
+    { label: '30d', ms: 30 * 86400000 },
+    { label: 'all', ms: null },
+  ]
+  type SourceRow = { source: string; total: number; typeform: number; interviewing: number; training: number; active: number; standby: number; offboarded: number }
+  const emptySourceRow = (s: string): SourceRow => ({ source: s, total: 0, typeform: 0, interviewing: 0, training: 0, active: 0, standby: 0, offboarded: 0 })
+  const stageBuckets: Record<string, keyof SourceRow> = {
+    typeform: 'typeform', passed_typeform: 'typeform',
+    pending_interview: 'interviewing', scheduled_interview: 'interviewing',
+    pending_onboarding: 'interviewing', pending_week_1: 'interviewing',
+    week_1_training: 'training', week_2_training: 'training', week_3_training: 'training', training_board: 'training',
+    pool: 'standby', standby: 'standby',
+    active: 'active', promoted: 'active', pto: 'active',
+    offboarded: 'offboarded',
+  }
+  for (const w of windows) {
+    const cutoff = w.ms == null ? null : now - w.ms
+    const inWindow = activeCandidates.filter(c => {
+      if (!c.source || !c.source.trim()) return false
+      if (cutoff == null) return true
+      const created = c.monday_created_at ? new Date(c.monday_created_at).getTime() : 0
+      return created >= cutoff
+    })
+    const bySource = new Map<string, SourceRow>()
+    for (const c of inWindow) {
+      const src = c.source!.trim()
+      const row = bySource.get(src) ?? emptySourceRow(src)
+      row.total += 1
+      const b = stageBuckets[c.current_stage]
+      if (b && b !== 'source' && b !== 'total') (row[b] as number) += 1
+      bySource.set(src, row)
+    }
+    const sorted = [...bySource.values()].sort((a, b) => b.total - a.total)
+    if (sorted.length === 0) continue
+    const withoutSourceCount = activeCandidates.filter(c => {
+      if (c.source && c.source.trim()) return false
+      if (cutoff == null) return true
+      const created = c.monday_created_at ? new Date(c.monday_created_at).getTime() : 0
+      return created >= cutoff
+    }).length
+    lines.push(`─── SOURCE BREAKDOWN — ${w.label} (candidates by recruiter/source) ───`)
+    lines.push('source | total | typeform | interviewing | training | active | standby | offboarded')
+    for (const r of sorted) {
+      lines.push(`${r.source} | ${r.total} | ${r.typeform} | ${r.interviewing} | ${r.training} | ${r.active} | ${r.standby} | ${r.offboarded}`)
+    }
+    lines.push(`(unassigned source) | ${withoutSourceCount} | — | — | — | — | — | —`)
+    lines.push('')
+  }
+  lines.push('HEADHUNTERS (external recruiters): Cel, Alvin, Carol. All their tag variants (e.g. "Cel Experienced", "Carol (FB)", "Carol (TG)", "Alvin Experienced") count as their attribution — group them when reporting headhunter performance.')
+  lines.push('')
   lines.push('')
 
   // Recent movements — UK filtered out
@@ -440,6 +496,7 @@ ANSWERING RULES
 - "How many moved to X in the last N days?" / "Who moved to active/standby in the last 14 days?" / "What's happened over time?" → use MOVEMENTS BY WINDOW for aggregate counts (24h, 7d, 14d, 30d, all-time) and NAMED MOVEMENTS to list the specific candidates. If N doesn't exactly match a bucket, use the closest bucket + explain (e.g. "using 14d window as the closest bucket").
 - For custom windows not in the buckets (e.g. "last 21 days"), filter NAMED MOVEMENTS by date manually and recount.
 - "Who was offboarded / cut?" or "who did we lose in the last week?" → count NAMED MOVEMENTS where to = 'offboarded' inside the requested window, and cross-reference OFFBOARDED CANDIDATES for the roster. The OFFBOARDED CANDIDATES section holds up to 400 most recently offboarded — for older ones, tell Keit the DB has more but they were truncated.
+- "How is Cel doing?" / "Who's the best headhunter?" / "Where are candidates coming from?" → use SOURCE BREAKDOWN. Cel, Alvin, Carol are external headhunters — sum ALL their tag variants (Cel + "Cel Experienced"; Carol + "Carol (FB)" + "Carol (TG)" + "Carol Experienced"; Alvin + "Alvin Experienced") when computing their totals. Report volume (total) AND conversion (how many moved past interview into training/active). A headhunter sending 50 candidates but with 40 offboarded and 0 active is bad; one sending 20 with 5 active is great. Always contextualize with the offboarded number — high total + high offboarded = low quality.
 - WEEKLY REPORT FORMAT (when Keit asks for a hiring/training report for his bosses): use the REGION × WINDOW METRICS table for the 7d window. Report BOTH "in bucket during window" AND "arrivals" AND "current" because they mean different things and operators care about all three. Shape it like this:
   "SA: 30 in training this week (8 remain, 22 cut, 2 new). 0 promoted to active. 0 sent to standby."
   Use in-X for the headline "how many did we have this week", →X for new intake, current for what's left, →offboarded for cuts. NEVER report only "→training" as the training number — that's just new arrivals, not the full training activity. Base on the 7d window unless Keit specifies otherwise.
