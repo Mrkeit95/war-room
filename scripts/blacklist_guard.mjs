@@ -126,7 +126,16 @@ export async function loadGuard() {
     byName.set(normName(name), rec)
   }
 
-  const addMonday = (items, tagPrefix, counter) => {
+  // Group IDs candidate should land in when hit — matches where they were.
+  const HOME_OFF = 'new_group_mkmfp0tz'   // OFFBOARDED
+  const HOME_BL  = 'group_mknjjdjm'        // BLACKLISTED
+  // Sheet-only hits (no Monday row) default to OFFBOARDED — they're historical.
+  for (const rec of byEmail.values()) rec.homeGroup ??= HOME_OFF
+  for (const rec of byPhone.values()) rec.homeGroup ??= HOME_OFF
+  for (const rec of byTg.values()) rec.homeGroup ??= HOME_OFF
+  for (const rec of byName.values()) rec.homeGroup ??= HOME_OFF
+
+  const addMonday = (items, tagPrefix, counter, homeGroup) => {
     for (const it of items) {
       counter.value++
       const cvs = {}
@@ -135,10 +144,12 @@ export async function loadGuard() {
         name: it.name,
         status: `MONDAY ${tagPrefix}`,
         source: 'monday',
+        homeGroup,
         email: normEmail(cvs[COL_EMAIL]),
         phone: normPhone(cvs[COL_PHONE]),
         tg: normTg(cvs[COL_TG]),
       }
+      // Monday records override sheet records (more current + more precise routing).
       if (rec.email) byEmail.set(rec.email, rec)
       if (rec.phone && rec.phone.length >= 7) byPhone.set(rec.phone, rec)
       if (rec.tg) byTg.set(rec.tg, rec)
@@ -146,8 +157,8 @@ export async function loadGuard() {
     }
   }
   const off = { value: 0 }, bl = { value: 0 }
-  addMonday(offItems, 'OFFBOARDED', off)
-  addMonday(blItems, 'BLACKLISTED', bl)
+  addMonday(offItems, 'OFFBOARDED', off, HOME_OFF)
+  addMonday(blItems, 'BLACKLISTED', bl, HOME_BL)
   stats.mondayOff = off.value
   stats.mondayBl = bl.value
 

@@ -157,10 +157,13 @@ async function main() {
 
     let targetGroup, tag, sourceTag = source
     if (hit) {
-      targetGroup = G_OFF
-      tag = 'BLOCKED'
+      // Route to the same group they were in previously (OFFBOARDED vs BLACKLISTED).
+      // Sheet-only hits default to OFFBOARDED (homeGroup set on load).
+      targetGroup = hit.homeGroup || G_OFF
+      const destName = targetGroup === G_OFF ? 'OFFBOARDED' : 'BLACKLISTED'
+      tag = `BLOCKED→${destName}`
       sourceTag = `BLACKLIST HIT (${hit.status}, via ${hit.via}) — was going to ${exp ? 'Exp' : 'NonExp'}`
-      buckets.blocked.push({ ...l, name, hit })
+      buckets.blocked.push({ ...l, name, hit, dest: destName })
     } else {
       targetGroup = exp ? G_EXP : G_NEX
       tag = exp ? 'EXP' : 'NEX'
@@ -203,16 +206,18 @@ async function main() {
     await new Promise(r => setTimeout(r, 200))
   }
 
+  const blockedToOff = buckets.blocked.filter(b => b.dest === 'OFFBOARDED').length
+  const blockedToBl  = buckets.blocked.filter(b => b.dest === 'BLACKLISTED').length
   console.log('\n═══ SUMMARY ═══')
   console.log(`  ✓ ${buckets.created.exp.length} created in APPLICANTS (C) Exp`)
   console.log(`  ✓ ${buckets.created.nex.length} created in APPLICANTS (C) Non Exp`)
-  console.log(`  🚫 ${buckets.blocked.length} blocked (matched blacklist) → landed in OFFBOARDED with BLACKLIST HIT tag`)
+  console.log(`  🚫 ${buckets.blocked.length} blocked → ${blockedToOff} to OFFBOARDED, ${blockedToBl} to BLACKLISTED`)
   console.log(`  ⏭ ${buckets.skipped.length} skipped (already on Monday or no name)`)
   console.log(`  ✗ ${buckets.failed.length} failed`)
 
   if (buckets.blocked.length > 0) {
     console.log('\nBLOCKED CANDIDATES:')
-    for (const b of buckets.blocked) console.log(`  · ${b.name}  ·  matched "${b.hit.name}" (${b.hit.status}) via ${b.hit.via}`)
+    for (const b of buckets.blocked) console.log(`  · ${b.name}  →  ${b.dest}  ·  matched "${b.hit.name}" (${b.hit.status}) via ${b.hit.via}`)
   }
 }
 

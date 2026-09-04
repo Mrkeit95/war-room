@@ -1,0 +1,36 @@
+name: Sync applicants (Meta ad leads → Monday)
+
+# Runs the applicant-sync script every 15 minutes.
+# Pulls new leads from the Google sheet, cross-references the blacklist
+# guard (14k+ sheet rows + Monday OFFBOARDED + BLACKLISTED), and:
+#   - Fresh candidates → APPLICANTS (C) Exp / Non Exp
+#   - Blacklist hits    → back to their original group (OFFBOARDED or BLACKLISTED)
+
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 min (UTC)
+  workflow_dispatch: {}     # manual trigger from Actions tab
+
+concurrency:
+  group: applicant-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run applicant sync
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
+          MONDAY_BOARD_ID_PH: ${{ secrets.MONDAY_BOARD_ID_PH }}
+        run: |
+          echo "Syncing applicants at $(date -u)"
+          node scripts/sync_applicants.mjs
