@@ -32,7 +32,8 @@ const MON = process.env.MONDAY_API_TOKEN
 const PH  = process.env.MONDAY_BOARD_ID_PH
 const G_EXP = 'group_mm6wk20'         // APPLICANTS (C) Exp
 const G_NEX = 'group_mm6tcv2t'        // APPLICANTS (C) Non Exp
-const G_OFF = 'new_group_mkmfp0tz'    // OFFBOARDED (blacklist hits land here)
+const G_OFF = 'new_group_mkmfp0tz'    // OFFBOARDED (blacklist hits land here by default)
+const G_BL  = 'group_mknjjdjm'        // BLACKLISTED (blacklist hits land here if that's where they were)
 const G_PCT = 'group_mm6htkjn'        // PENDING CHAT TRIAL (legacy dedupe target)
 const COL = {
   source:'text_mknf4048', telegram:'text_mkmyfzv0', email:'email_mkmyj2e4',
@@ -111,8 +112,19 @@ const M = (q, v) => fetch('https://api.monday.com/v2', {
 }).then(r => r.json())
 
 async function pageGroup(gid) {
-  const r = await M(`{ boards(ids: [${PH}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`, {})
-  return r.data?.boards?.[0]?.groups?.[0]?.items_page?.items ?? []
+  const rows = []
+  let cursor = null
+  while (true) {
+    const q = cursor
+      ? `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } }`
+      : `{ boards(ids: [${PH}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`
+    const r = await M(q, {})
+    const page = cursor ? r.data?.next_items_page : r.data?.boards?.[0]?.groups?.[0]?.items_page
+    rows.push(...(page?.items ?? []))
+    cursor = page?.cursor
+    if (!cursor) break
+  }
+  return rows
 }
 
 // ─── Main ──────────────────────────────────────────────────────────
@@ -132,11 +144,16 @@ async function main() {
   console.log(`  ${guard.stats.sheet} sheet rows + ${guard.stats.mondayOff} monday-off + ${guard.stats.mondayBl} monday-bl`)
   console.log(`  lookup sizes: ${guard.sizes.emails} emails, ${guard.sizes.phones} phones, ${guard.sizes.telegrams} tgs, ${guard.sizes.names} names\n`)
 
-  console.log('Loading Monday state (Applicants + PCT for dedupe)…')
-  const [inExp, inNex, inPct] = await Promise.all([pageGroup(G_EXP), pageGroup(G_NEX), pageGroup(G_PCT)])
-  const monEmails = new Set([...inExp, ...inNex, ...inPct].map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
-  const monNames  = new Set([...inExp, ...inNex, ...inPct].map(i => i.name.toLowerCase().trim()))
-  console.log(`  Applicants Exp=${inExp.length} · Non Exp=${inNex.length} · PCT=${inPct.length}\n`)
+  console.log('Loading Monday state (Applicants + PCT + OFFBOARDED + BLACKLISTED for dedupe)…')
+  // NB: dedup MUST include OFFBOARDED + BLACKLISTED, otherwise every cron run creates
+  // duplicate copies of the same blacklisted person over and over.
+  const [inExp, inNex, inPct, inOff, inBl] = await Promise.all([
+    pageGroup(G_EXP), pageGroup(G_NEX), pageGroup(G_PCT),
+    pageGroup(G_OFF), pageGroup(G_BL),
+  ])
+  const monEmails = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl].map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
+  const monNames  = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl].map(i => i.name.toLowerCase().trim()))
+  console.log(`  Applicants Exp=${inExp.length} · Non Exp=${inNex.length} · PCT=${inPct.length} · OFFBOARDED=${inOff.length} · BLACKLISTED=${inBl.length}\n`)
 
   const isRealExp = t => { const s = (t||'').trim(); return s && s !== '–' && s !== '-' }
   const cleanCred = t => { const s = (t||'').trim(); if (!s || /^i don.?t have$/i.test(s) || /^don.?t have$/i.test(s) || /^n\/?a$/i.test(s) || /^no$/i.test(s) || /^none$/i.test(s)) return ''; return s }
