@@ -72,9 +72,16 @@ async function main() {
     })(),
   ])
   const titleById = {}
-  const walk = fs => { for (const f of fs ?? []) { if (f.title) titleById[f.id] = f.title; if (f.properties?.fields) walk(f.properties.fields) } }
+  const imageById = {}  // fieldId → image URL if the question has an attached image
+  const walk = fs => {
+    for (const f of fs ?? []) {
+      if (f.title) titleById[f.id] = f.title
+      if (f.attachment?.type === 'image' && f.attachment.href) imageById[f.id] = f.attachment.href
+      if (f.properties?.fields) walk(f.properties.fields)
+    }
+  }
   walk(formJ.fields)
-  console.log(`  form "${formJ.title}" · ${respJ.length} completed responses\n`)
+  console.log(`  form "${formJ.title}" · ${respJ.length} completed responses · ${Object.keys(imageById).length} questions have images\n`)
 
   if (respJ.length === 0) {
     console.log('No responses yet. Nothing to do.')
@@ -152,7 +159,9 @@ async function main() {
       c: JSON.stringify({ [COL.source]: `PASSED FOLLOW-UP FILTER — ${new Date().toISOString().slice(0,10)}` }),
     })
 
-    // Post follow-up Q&A as Update
+    // Post follow-up Q&A as Update. For questions with an image
+    // attachment, embed the image inline so the reviewer can see the
+    // scenario screenshot right above the applicant's answer.
     const lines = ['Experienced chatter — Follow-up filter', '']
     for (const a of r.answers ?? []) {
       const t = titleById[a.field.id] ?? a.field.id
@@ -162,7 +171,11 @@ async function main() {
         ?? (a.choices?.labels?.join(', ') ?? null)
         ?? a.date ?? ''
       if (val === null || val === undefined || val === '') continue
-      lines.push(`**${t}**`, String(val), '')
+      lines.push(`<strong>${t}</strong>`)
+      const img = imageById[a.field.id]
+      if (img) lines.push(`<img src="${img}" style="max-width:500px;display:block;margin:6px 0" />`)
+      lines.push(String(val).replace(/\n/g, '<br />'))
+      lines.push('')
     }
     await M(`mutation ($iid: ID!, $b: String!) { create_update(item_id: $iid, body: $b) { id } }`, { iid: match.id, b: lines.join('\n') })
 
