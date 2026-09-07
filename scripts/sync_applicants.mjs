@@ -144,16 +144,19 @@ async function main() {
   console.log(`  ${guard.stats.sheet} sheet rows + ${guard.stats.mondayOff} monday-off + ${guard.stats.mondayBl} monday-bl`)
   console.log(`  lookup sizes: ${guard.sizes.emails} emails, ${guard.sizes.phones} phones, ${guard.sizes.telegrams} tgs, ${guard.sizes.names} names\n`)
 
-  console.log('Loading Monday state (Applicants + PCT + OFFBOARDED + BLACKLISTED for dedupe)…')
-  // NB: dedup MUST include OFFBOARDED + BLACKLISTED, otherwise every cron run creates
-  // duplicate copies of the same blacklisted person over and over.
-  const [inExp, inNex, inPct, inOff, inBl] = await Promise.all([
+  console.log('Loading Monday state (Applicants + PCT + OFFBOARDED + BLACKLISTED + FILTERED for dedupe)…')
+  // NB: dedup MUST include OFFBOARDED + BLACKLISTED + FILTERED. Otherwise:
+  //   - guard-caught leads get duplicated in OFFBOARDED every cron run
+  //   - when the operator temporarily moves items to FILTERED to trigger email
+  //     recipes, the cron sees them "missing" from dedup and re-creates them
+  const G_FILTERED = 'group_mm6xv03r'
+  const [inExp, inNex, inPct, inOff, inBl, inFilt] = await Promise.all([
     pageGroup(G_EXP), pageGroup(G_NEX), pageGroup(G_PCT),
-    pageGroup(G_OFF), pageGroup(G_BL),
+    pageGroup(G_OFF), pageGroup(G_BL), pageGroup(G_FILTERED),
   ])
-  const monEmails = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl].map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
-  const monNames  = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl].map(i => i.name.toLowerCase().trim()))
-  console.log(`  Applicants Exp=${inExp.length} · Non Exp=${inNex.length} · PCT=${inPct.length} · OFFBOARDED=${inOff.length} · BLACKLISTED=${inBl.length}\n`)
+  const monEmails = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl, ...inFilt].map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
+  const monNames  = new Set([...inExp, ...inNex, ...inPct, ...inOff, ...inBl, ...inFilt].map(i => i.name.toLowerCase().trim()))
+  console.log(`  Exp=${inExp.length} · NEX=${inNex.length} · PCT=${inPct.length} · OFF=${inOff.length} · BL=${inBl.length} · FILTERED=${inFilt.length}\n`)
 
   const isRealExp = t => { const s = (t||'').trim(); return s && s !== '–' && s !== '-' }
   const cleanCred = t => { const s = (t||'').trim(); if (!s || /^i don.?t have$/i.test(s) || /^don.?t have$/i.test(s) || /^n\/?a$/i.test(s) || /^no$/i.test(s) || /^none$/i.test(s)) return ''; return s }
