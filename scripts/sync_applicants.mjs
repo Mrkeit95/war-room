@@ -81,12 +81,21 @@ function extractRow(row, cols, tabName) {
   const g = i => (i >= 0 && row[i]) ? row[i].trim() : ''
 
   const eng = g(IDX.english), hrs = g(IDX.hours), tg = g(IDX.telegram)
-  // Shift-by-1 detection: hours-col holds English value AND telegram-col holds Hours value
-  if (ENGLISH_RE.test(hrs) && HOURS_RE.test(tg)) {
+  const first = g(IDX.first), last = g(IDX.last), phone = g(IDX.phone), country = g(IDX.country)
+  // Shift-by-1 detection: entire row shifted right by 1.
+  // Trigger on either (a) first-name slot empty while last-name slot has content,
+  // or (b) hours-col holds English value AND telegram-col holds Hours value.
+  const shifted = (!first && last) || (ENGLISH_RE.test(hrs) && HOURS_RE.test(tg))
+  if (shifted) {
     return {
-      email: g(IDX.email).toLowerCase(), first: g(IDX.first), last: g(IDX.last),
-      phone: g(IDX.phone), country: g(IDX.country),
-      english: hrs, hours: tg, telegram: g(IDX.discord), discord: g(IDX.prevExp),
+      email: g(IDX.email).toLowerCase(),
+      first: last,                    // last-slot → real first
+      last: phone,                    // phone-slot → real last
+      phone: country,                 // country-slot → real phone
+      country: eng,                   // english-slot → real country
+      english: hrs, hours: tg,
+      telegram: g(IDX.discord),
+      discord: g(IDX.prevExp),
       prevExp: g(IDX.timeSince), timeSince: g(IDX.history), history: g(IDX.startSoon),
       startSoon: g(IDX.why), why: '',
       utmSrc: g(IDX.utmSrc), utmMed: g(IDX.utmMed),
