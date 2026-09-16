@@ -44,9 +44,9 @@ jobs:
           EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
         run: |
           echo "Send-emails run at $(date -u)"
-          # TEMPORARILY pinned to EXP only. Remove the --only-group flag once the
-          # NON EXP template has been finalized, so cron resumes sending both.
-          ARGS="--only-group=group_mm6wk20"
+          # Sweeps APPLICANTS (C) EXP + NON EXP on both boards (dual-board
+          # aware). No --only-group flag: both templates fire per run.
+          ARGS=""
           if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
           if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit=${{ github.event.inputs.limit }}"; fi
           node scripts/send_emails.mjs $ARGS

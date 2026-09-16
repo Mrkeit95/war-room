@@ -75,7 +75,7 @@ const TEMPLATES = {
 <p>Hi ${name || 'there'},</p>
 <p>Thank you for applying to Chatstars.</p>
 <p>To move forward with your application, the next step is to join our official training Telegram channel. All training instructions, schedules, and next steps will be posted there:</p>
-<p>👉 <a href="https://t.me/+JUYWdHgBXkdmN2Y1">https://t.me/+JUYWdHgBXkdmN2Y1</a></p>
+<p>👉 <a href="https://t.me/+Vf1bbHeWTTs4MDg1">https://t.me/+Vf1bbHeWTTs4MDg1</a></p>
 <p>Please join as soon as possible so you don't miss any updates or the start of your training.</p>
 <p>If you have any questions along the way, you can reach our hiring managers on Telegram:</p>
 <p>• @applebee1113<br/>• @pau_chtstrs</p>

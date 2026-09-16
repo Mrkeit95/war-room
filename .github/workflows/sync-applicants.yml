@@ -31,9 +31,11 @@ jobs:
         env:
           MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
           MONDAY_BOARD_ID_PH: ${{ secrets.MONDAY_BOARD_ID_PH }}
-          # Pass HIRING PIPELINE id so the blacklist guard also checks its
-          # OFFBOARDED + BLACKLISTED groups during the board-split migration.
+          # HIRING PIPELINE — blacklist guard reads its OFFBOARDED + BLACKLISTED too
           MONDAY_BOARD_ID_HIRING: ${{ secrets.MONDAY_BOARD_ID_HIRING }}
+          # Target board — where NEW items are created. Flip to HIRING PIPELINE
+          # by setting the secret. Unset falls back to CHATTER DATABASE.
+          MONDAY_TARGET_BOARD_ID: ${{ secrets.MONDAY_TARGET_BOARD_ID }}
         run: |
           echo "Syncing applicants at $(date -u)"
           node scripts/sync_applicants.mjs
