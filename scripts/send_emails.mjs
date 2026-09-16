@@ -40,11 +40,17 @@ if (!MON) throw new Error('MONDAY_API_TOKEN not set')
 if (!PH)  throw new Error('MONDAY_BOARD_ID_PH not set')
 if (!RESEND_KEY) throw new Error('RESEND_API_KEY not set')
 
-// ─── Column + group IDs on the current PH board ───────────────────────
-const COL = {
-  email:     'email_mkmyj2e4',
-  emailSent: 'color_mm78gm1t',   // Email Sent status column (labels: Sent / Failed / Bounced)
+// ─── Column IDs ─────────────────────────────────────────────────────────
+// Email is same ID across both boards. Email Sent has a different column ID
+// per board because they were created separately at different times — Monday
+// column IDs are immutable and can't be shared. Keep a per-board lookup so
+// markSent() writes to the right one.
+const COL = { email: 'email_mkmyj2e4' }
+const EMAIL_SENT_COL_BY_BOARD = {
+  '8310424001':  'color_mm78gm1t',   // CHATTER DATABASE
+  '18431281189': 'color_mm78m5cy',   // HIRING PIPELINE
 }
+const emailSentColFor = boardId => EMAIL_SENT_COL_BY_BOARD[String(boardId)] || EMAIL_SENT_COL_BY_BOARD[String(PH)]
 const G_EXP = 'group_mm6wk20'  // APPLICANTS (C) EXP
 const G_NEX = 'group_mm6tcv2t' // APPLICANTS (C) NON EXP
 
@@ -95,26 +101,28 @@ async function M(q, v, tries=3) {
 }
 
 async function fetchGroupItems(gid, boardId = PH) {
+  const emailSentCol = emailSentColFor(boardId)
   const rows = []; let cursor = null
   while (true) {
     const q = cursor
-      ? `{ next_items_page(limit:500, cursor:"${cursor}") { cursor items { id name column_values(ids:["${COL.email}","${COL.emailSent}"]) { id text } } } }`
-      : `{ boards(ids:[${boardId}]) { groups(ids:["${gid}"]) { items_page(limit:500) { cursor items { id name column_values(ids:["${COL.email}","${COL.emailSent}"]) { id text } } } } } }`
+      ? `{ next_items_page(limit:500, cursor:"${cursor}") { cursor items { id name column_values(ids:["${COL.email}","${emailSentCol}"]) { id text } } } }`
+      : `{ boards(ids:[${boardId}]) { groups(ids:["${gid}"]) { items_page(limit:500) { cursor items { id name column_values(ids:["${COL.email}","${emailSentCol}"]) { id text } } } } } }`
     const r = await M(q)
     const page = cursor ? r.data?.next_items_page : r.data?.boards?.[0]?.groups?.[0]?.items_page
     rows.push(...(page?.items ?? []))
     cursor = page?.cursor
     if (!cursor) break
   }
-  // Stamp each row with the board it came from so markSent can update the
-  // Email Sent column on the correct board.
-  for (const r of rows) r._boardId = boardId
+  // Stamp each row with the board it came from so markSent uses the
+  // correct per-board Email Sent column ID.
+  for (const r of rows) { r._boardId = boardId; r._emailSentCol = emailSentCol }
   return rows
 }
 
 async function markSent(itemId, boardId, label='Sent') {
+  const emailSentCol = emailSentColFor(boardId)
   const r = await M(`mutation ($iid:ID!, $c:JSON!) { change_multiple_column_values(board_id:${boardId}, item_id:$iid, column_values:$c) { id } }`,
-    { iid: itemId, c: JSON.stringify({ [COL.emailSent]: { label } }) })
+    { iid: itemId, c: JSON.stringify({ [emailSentCol]: { label } }) })
   if (r.errors) console.log(`  ⚠ mark ${itemId} as ${label}: ${JSON.stringify(r.errors)}`)
   return !r.errors
 }
@@ -165,7 +173,7 @@ async function main() {
     for (let i = 0; i < SEARCH_BOARDS.length; i++) console.log(`  board ${SEARCH_BOARDS[i]}: ${boardPages[i].length} items`)
 
     const pending = items.filter(it => {
-      const sent = it.column_values.find(c => c.id === COL.emailSent)?.text || ''
+      const sent = it.column_values.find(c => c.id === it._emailSentCol)?.text || ''
       if (/^sent$/i.test(sent.trim())) return false
       if (ONLY_EMAIL) {
         const e = (it.column_values.find(c => c.id === COL.email)?.text || '').toLowerCase().trim()
