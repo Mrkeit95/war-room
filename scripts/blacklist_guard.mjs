@@ -94,12 +94,24 @@ async function pageGroupFull(boardId, groupId, cols) {
 export async function loadGuard() {
   const boardId = process.env.MONDAY_BOARD_ID_PH
   if (!boardId) throw new Error('MONDAY_BOARD_ID_PH not set')
+  // MONDAY_BOARD_ID_HIRING is the private HIRING PIPELINE board. During and
+  // after the board split migration, OFFBOARDED + BLACKLISTED items live on
+  // that board. If the env var is missing we still work — just skip it.
+  const hiringBoardId = process.env.MONDAY_BOARD_ID_HIRING
 
-  const [sheet, offItems, blItems] = await Promise.all([
-    fetchSheetTab(BL_SHEET_ID, ''),
+  const mondayReads = [
     pageGroupFull(boardId, G_OFF, [COL_EMAIL, COL_TG, COL_PHONE]),
     pageGroupFull(boardId, G_BL,  [COL_EMAIL, COL_TG, COL_PHONE]),
-  ])
+  ]
+  if (hiringBoardId) {
+    mondayReads.push(pageGroupFull(hiringBoardId, G_OFF, [COL_EMAIL, COL_TG, COL_PHONE]))
+    mondayReads.push(pageGroupFull(hiringBoardId, G_BL,  [COL_EMAIL, COL_TG, COL_PHONE]))
+  }
+  const [sheet, ...groups] = await Promise.all([fetchSheetTab(BL_SHEET_ID, ''), ...mondayReads])
+  const [chatOffItems, chatBlItems, hpOffItems = [], hpBlItems = []] = groups
+  // Merge same-role items from both boards. Callers just see one unified list.
+  const offItems = [...chatOffItems, ...hpOffItems]
+  const blItems  = [...chatBlItems,  ...hpBlItems]
 
   const byEmail = new Map()
   const byPhone = new Map()
