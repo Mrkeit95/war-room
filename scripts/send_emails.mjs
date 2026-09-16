@@ -53,6 +53,7 @@ const EMAIL_SENT_COL_BY_BOARD = {
 const emailSentColFor = boardId => EMAIL_SENT_COL_BY_BOARD[String(boardId)] || EMAIL_SENT_COL_BY_BOARD[String(PH)]
 const G_EXP = 'group_mm6wk20'  // APPLICANTS (C) EXP
 const G_NEX = 'group_mm6tcv2t' // APPLICANTS (C) NON EXP
+const G_PW1 = 'group_mkna78sd' // PENDING WEEK 1 (gets the NON EXP training email)
 
 // ─── Email templates ──────────────────────────────────────────────────
 // One entry per Monday group we send from. Adding another group is 4 lines.
@@ -77,7 +78,19 @@ const TEMPLATES = {
   [G_NEX]: {
     label: 'APPLICANTS (C) NON EXP',
     subject: 'Chatstars — Next steps to begin training',
-    html: ({ name }) => `
+    html: ({ name }) => nonExpTrainingHtml(name),
+  },
+  [G_PW1]: {
+    label: 'PENDING WEEK 1',
+    subject: 'Chatstars — Next steps to begin training',
+    html: ({ name }) => nonExpTrainingHtml(name),
+  },
+}
+
+// Shared body — NON EXP training telegram invite. Same copy for
+// APPLICANTS (C) NON EXP and PENDING WEEK 1.
+function nonExpTrainingHtml(name) {
+  return `
 <p>Hi ${name || 'there'},</p>
 <p>Thank you for applying to Chatstars.</p>
 <p>To move forward with your application, the next step is to join our official training Telegram channel. All training instructions, schedules, and next steps will be posted there:</p>
@@ -88,8 +101,7 @@ const TEMPLATES = {
 <p>We look forward to having you.</p>
 <p>Kind regards,<br/>The Chatstars Team</p>
 <p style="color:#888;font-size:12px;margin-top:24px">THIS IS AN AUTOMATED EMAIL, DO NOT REPLY</p>
-`.trim(),
-  },
+`.trim()
 }
 
 // ─── Monday helpers ───────────────────────────────────────────────────
