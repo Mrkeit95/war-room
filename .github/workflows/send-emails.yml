@@ -1,0 +1,49 @@
+name: Send outreach emails (Resend → candidates)
+
+# Every 15 min. Reads APPLICANTS (C) EXP + NON EXP on the PH board,
+# sends the group-specific template via Resend to each un-tagged candidate,
+# and marks the Email Sent column so no one gets emailed twice.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: 'Dry-run only (no sends, no writes)'
+        required: false
+        default: 'false'
+      limit:
+        description: 'Optional cap on the number of sends this run'
+        required: false
+        default: ''
+
+concurrency:
+  group: send-emails
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Send emails via Resend
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
+          MONDAY_BOARD_ID_PH: ${{ secrets.MONDAY_BOARD_ID_PH }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_REPLY_TO: ${{ secrets.EMAIL_REPLY_TO }}
+        run: |
+          echo "Send-emails run at $(date -u)"
+          ARGS=""
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit=${{ github.event.inputs.limit }}"; fi
+          node scripts/send_emails.mjs $ARGS
