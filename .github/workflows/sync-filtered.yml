@@ -30,6 +30,7 @@ jobs:
         env:
           MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
           MONDAY_BOARD_ID_PH: ${{ secrets.MONDAY_BOARD_ID_PH }}
+          MONDAY_BOARD_ID_HIRING: ${{ secrets.MONDAY_BOARD_ID_HIRING }}
           TYPEFORM_TOKEN: ${{ secrets.TYPEFORM_TOKEN }}
         run: |
           echo "Syncing follow-up filter at $(date -u)"

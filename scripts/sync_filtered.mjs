@@ -20,7 +20,14 @@ const TF_TOKEN = process.env.TYPEFORM_TOKEN
 if (!TF_TOKEN) throw new Error('TYPEFORM_TOKEN not set')
 const FORM_ID  = 'KnkH7pY6'
 const MON = process.env.MONDAY_API_TOKEN
-const PH  = process.env.MONDAY_BOARD_ID_PH
+const PH  = process.env.MONDAY_BOARD_ID_PH  // CHATTER DATABASE (legacy board)
+// Board-split migration: read from both, but the move-to-FILTERED destination
+// stays on whichever board the submitter currently lives on. That preserves
+// the natural flow during the migration mid-state (some candidates on each
+// board). If a submitter can't be found on either board, they're truly not
+// on Monday and we skip.
+const HIRING = process.env.MONDAY_BOARD_ID_HIRING
+const SEARCH_BOARDS = [...new Set([PH, HIRING].filter(Boolean))]
 
 const G_SOURCE   = 'group_mm6wk20'   // APPLICANTS (C) Exp (where they live pre-filter)
 const G_TARGET   = 'group_mm6xv03r'  // FILTERED (EXP) (where they land post-filter)
@@ -35,12 +42,12 @@ const M = (q, v) => fetch('https://api.monday.com/v2', {
   body: JSON.stringify({ query: q, variables: v }),
 }).then(r => r.json())
 
-async function pageGroup(gid) {
+async function pageGroup(gid, boardId = PH) {
   const rows = []; let cursor = null
   while (true) {
     const q = cursor
       ? `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } }`
-      : `{ boards(ids: [${PH}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`
+      : `{ boards(ids: [${boardId}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`
     const r = await M(q, {})
     const page = cursor ? r.data?.next_items_page : r.data?.boards?.[0]?.groups?.[0]?.items_page
     rows.push(...(page?.items ?? []))
@@ -98,12 +105,18 @@ async function main() {
   })()
   if (!emailFieldId) throw new Error('No email question found in the follow-up form')
 
-  console.log('Fetching Monday state…')
-  const [srcItems, targetItems, tfItems] = await Promise.all([
-    pageGroup(G_SOURCE),
-    pageGroup(G_TARGET),
-    pageGroup(G_ORIG_TF),
-  ])
+  console.log(`Fetching Monday state across ${SEARCH_BOARDS.length} board(s)…`)
+  // For each board we know about, pull APPLICANTS EXP, FILTERED (EXP), and
+  // EXP TYPEFORMS groups. During migration a submitter might live on either
+  // board — we want to find them wherever they are and move them to FILTERED
+  // on the SAME board (preserving natural per-board flow).
+  const srcItems = [], targetItems = [], tfItems = []
+  const itemBoard = new Map() // itemId → boardId; used to move to FILTERED on the correct board
+  for (const b of SEARCH_BOARDS) {
+    const [s, t, tf] = await Promise.all([pageGroup(G_SOURCE, b), pageGroup(G_TARGET, b), pageGroup(G_ORIG_TF, b)])
+    for (const it of [...s, ...t, ...tf]) itemBoard.set(String(it.id), b)
+    srcItems.push(...s); targetItems.push(...t); tfItems.push(...tf)
+  }
   const filteredEmails = new Set(targetItems.map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
   const filteredNames  = new Set(targetItems.map(i => i.name.toLowerCase().trim()))
   const byEmailInMoveable = new Map()
@@ -149,12 +162,13 @@ async function main() {
       continue
     }
 
-    // Move item to FILTERED (EXP)
+    // Move item to FILTERED (EXP) — stays on whichever board it currently lives on
+    const matchBoard = itemBoard.get(String(match.id)) || PH
     const mv = await M(`mutation ($iid: ID!) { move_item_to_group(item_id: $iid, group_id: "${G_TARGET}") { id } }`, { iid: match.id })
     if (mv.errors) { console.log(`  ✗ move ${match.name}: ${JSON.stringify(mv.errors)}`); failed++; continue }
 
     // Update source column so you can see they passed the filter
-    await M(`mutation ($iid: ID!, $c: JSON!) { change_multiple_column_values(board_id: ${PH}, item_id: $iid, column_values: $c) { id } }`, {
+    await M(`mutation ($iid: ID!, $c: JSON!) { change_multiple_column_values(board_id: ${matchBoard}, item_id: $iid, column_values: $c) { id } }`, {
       iid: match.id,
       c: JSON.stringify({ [COL.source]: `PASSED FOLLOW-UP FILTER — ${new Date().toISOString().slice(0,10)}` }),
     })

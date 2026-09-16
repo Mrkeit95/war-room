@@ -29,7 +29,15 @@ const DRY = process.argv.includes('--dry') || process.argv.includes('--dry-run')
 // Config
 const APP_SHEET_ID = '1eNMcOJ_ypz4B-Thj1F54ZBoZam9_VOW-XX4s1bWo4T4'  // Meta lead ad sheet
 const MON = process.env.MONDAY_API_TOKEN
-const PH  = process.env.MONDAY_BOARD_ID_PH
+const PH  = process.env.MONDAY_BOARD_ID_PH  // CHATTER DATABASE (legacy board)
+// Board-split migration: TARGET is where new items are CREATED. Defaults to
+// the legacy CHATTER DATABASE. Set MONDAY_TARGET_BOARD_ID to HIRING PIPELINE
+// (18431281189) to route new intake there. Dedup still checks BOTH boards
+// so no candidate gets duplicated across the split.
+const TARGET = process.env.MONDAY_TARGET_BOARD_ID || PH
+const HIRING = process.env.MONDAY_BOARD_ID_HIRING  // optional; used for dedup
+// Boards we scan for dedup — deduped so we don't hit the same board twice.
+const DEDUP_BOARDS = [...new Set([PH, TARGET, HIRING].filter(Boolean))]
 const G_EXP = 'group_mm6wk20'         // APPLICANTS (C) Exp
 const G_NEX = 'group_mm6tcv2t'        // APPLICANTS (C) Non Exp
 const G_OFF = 'new_group_mkmfp0tz'    // OFFBOARDED (blacklist hits land here by default)
@@ -120,13 +128,13 @@ const M = (q, v) => fetch('https://api.monday.com/v2', {
   body: JSON.stringify({ query: q, variables: v }),
 }).then(r => r.json())
 
-async function pageGroup(gid) {
+async function pageGroup(gid, boardId = PH) {
   const rows = []
   let cursor = null
   while (true) {
     const q = cursor
       ? `{ next_items_page(limit: 500, cursor: "${cursor}") { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } }`
-      : `{ boards(ids: [${PH}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`
+      : `{ boards(ids: [${boardId}]) { groups(ids: ["${gid}"]) { items_page(limit: 500) { cursor items { id name column_values(ids: ["${COL.email}"]) { text } } } } } }`
     const r = await M(q, {})
     const page = cursor ? r.data?.next_items_page : r.data?.boards?.[0]?.groups?.[0]?.items_page
     rows.push(...(page?.items ?? []))
@@ -153,18 +161,27 @@ async function main() {
   console.log(`  ${guard.stats.sheet} sheet rows + ${guard.stats.mondayOff} monday-off + ${guard.stats.mondayBl} monday-bl`)
   console.log(`  lookup sizes: ${guard.sizes.emails} emails, ${guard.sizes.phones} phones, ${guard.sizes.telegrams} tgs, ${guard.sizes.names} names\n`)
 
-  console.log('Loading Monday state (EVERY group on the board for dedupe)…')
-  // Dedup MUST include every group. Otherwise items get re-created every cron
-  // run once they've been moved to a stage the check doesn't cover (PENDING
-  // WEEK 1, WEEK 1 TRAINING, ACTIVE, etc.). We enumerate the board's groups
-  // dynamically so any new group added on Monday is automatically covered.
-  const groupsResp = await M(`{ boards(ids: [${PH}]) { groups { id title } } }`)
-  const boardGroups = groupsResp.data?.boards?.[0]?.groups ?? []
-  const groupPages = await Promise.all(boardGroups.map(g => pageGroup(g.id).then(items => ({ g, items }))))
-  const allBoardItems = groupPages.flatMap(x => x.items)
+  console.log(`Loading Monday state (EVERY group on ${DEDUP_BOARDS.length} board(s) for dedupe)…`)
+  // Dedup MUST include every group on every board we might have touched.
+  // Otherwise items get re-created every cron run when they've been moved
+  // to a stage or a board the check doesn't cover. During board-split
+  // migration TARGET is HIRING PIPELINE, so we scan BOTH CHATTER DATABASE
+  // and HIRING PIPELINE. After migration TARGET is HIRING PIPELINE for
+  // creates, and the CHATTER DATABASE scan is still useful for the tail of
+  // post-STANDBY items that live over there permanently.
+  const allBoardItems = []
+  for (const boardId of DEDUP_BOARDS) {
+    const groupsResp = await M(`{ boards(ids: [${boardId}]) { name groups { id title } } }`)
+    const board = groupsResp.data?.boards?.[0]
+    const boardGroups = board?.groups ?? []
+    const groupPages = await Promise.all(boardGroups.map(g => pageGroup(g.id, boardId).then(items => ({ g, items }))))
+    const boardItems = groupPages.flatMap(x => x.items)
+    allBoardItems.push(...boardItems)
+    console.log(`  ${board?.name ?? boardId}: ${boardGroups.length} groups · ${boardItems.length} items`)
+  }
   const monEmails = new Set(allBoardItems.map(i => (i.column_values?.[0]?.text ?? '').toLowerCase().trim()).filter(Boolean))
   const monNames  = new Set(allBoardItems.map(i => i.name.toLowerCase().trim()).filter(Boolean))
-  console.log(`  ${boardGroups.length} groups scanned · ${allBoardItems.length} total items · ${monEmails.size} unique emails, ${monNames.size} unique names\n`)
+  console.log(`  TOTAL: ${allBoardItems.length} items · ${monEmails.size} unique emails, ${monNames.size} unique names\n`)
 
   const isRealExp = t => { const s = (t||'').trim(); return s && s !== '–' && s !== '-' }
   const cleanCred = t => { const s = (t||'').trim(); if (!s || /^i don.?t have$/i.test(s) || /^don.?t have$/i.test(s) || /^n\/?a$/i.test(s) || /^no$/i.test(s) || /^none$/i.test(s)) return ''; return s }
@@ -212,7 +229,14 @@ async function main() {
     }
     if (l.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(l.email)) cv[COL.email] = { email: l.email, text: l.email }
 
-    const j = await M(`mutation ($n: String!, $c: JSON!) { create_item(board_id: ${PH}, group_id: "${targetGroup}", item_name: $n, column_values: $c) { id } }`, { n: name, c: JSON.stringify(cv) })
+    // Blacklist hits ALWAYS land in OFFBOARDED/BLACKLISTED. Those groups now
+    // live on the private HIRING PIPELINE board (post Phase 1 migration).
+    // Everyone else goes to the current TARGET board (CHATTER DATABASE by
+    // default, HIRING PIPELINE once the switch is flipped).
+    const createBoard = (targetGroup === G_OFF || targetGroup === G_BL)
+      ? (HIRING || TARGET)
+      : TARGET
+    const j = await M(`mutation ($n: String!, $c: JSON!) { create_item(board_id: ${createBoard}, group_id: "${targetGroup}", item_name: $n, column_values: $c) { id } }`, { n: name, c: JSON.stringify(cv) })
     if (j.errors || !j.data?.create_item?.id) { console.log(`  ✗ ${name}: ${JSON.stringify(j.errors)}`); buckets.failed.push({ name, error: j.errors }); continue }
     const iid = j.data.create_item.id
     console.log(`  ✓ [${tag}] ${name}  ·  ${country}${hit ? `  ·  ${hit.status}/${hit.via}` : ''}  ·  item ${iid}`)

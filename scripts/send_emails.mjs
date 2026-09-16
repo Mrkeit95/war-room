@@ -26,7 +26,12 @@ const TEST_TO = (process.argv.find(a => a.startsWith('--test=')) || '').split('=
 const ONLY_EMAIL = ((process.argv.find(a => a.startsWith('--only-email=')) || '').split('=')[1] || '').toLowerCase()
 
 const MON = process.env.MONDAY_API_TOKEN
-const PH  = process.env.MONDAY_BOARD_ID_PH
+const PH  = process.env.MONDAY_BOARD_ID_PH  // CHATTER DATABASE (legacy board)
+// Board-split migration: read APPLICANTS EXP/NON EXP from BOTH boards during
+// the transition, so no candidate misses their outreach whether they've been
+// migrated or not. Defaults to CHATTER DATABASE only if HIRING is unset.
+const HIRING = process.env.MONDAY_BOARD_ID_HIRING
+const SEARCH_BOARDS = [...new Set([PH, HIRING].filter(Boolean))]
 const RESEND_KEY = process.env.RESEND_API_KEY
 const FROM = process.env.EMAIL_FROM || 'Chatstars Training <training@chatstars.co>'
 const REPLY_TO = process.env.EMAIL_REPLY_TO || 'training@chatstars.co'
@@ -89,23 +94,26 @@ async function M(q, v, tries=3) {
   }
 }
 
-async function fetchGroupItems(gid) {
+async function fetchGroupItems(gid, boardId = PH) {
   const rows = []; let cursor = null
   while (true) {
     const q = cursor
       ? `{ next_items_page(limit:500, cursor:"${cursor}") { cursor items { id name column_values(ids:["${COL.email}","${COL.emailSent}"]) { id text } } } }`
-      : `{ boards(ids:[${PH}]) { groups(ids:["${gid}"]) { items_page(limit:500) { cursor items { id name column_values(ids:["${COL.email}","${COL.emailSent}"]) { id text } } } } } }`
+      : `{ boards(ids:[${boardId}]) { groups(ids:["${gid}"]) { items_page(limit:500) { cursor items { id name column_values(ids:["${COL.email}","${COL.emailSent}"]) { id text } } } } } }`
     const r = await M(q)
     const page = cursor ? r.data?.next_items_page : r.data?.boards?.[0]?.groups?.[0]?.items_page
     rows.push(...(page?.items ?? []))
     cursor = page?.cursor
     if (!cursor) break
   }
+  // Stamp each row with the board it came from so markSent can update the
+  // Email Sent column on the correct board.
+  for (const r of rows) r._boardId = boardId
   return rows
 }
 
-async function markSent(itemId, label='Sent') {
-  const r = await M(`mutation ($iid:ID!, $c:JSON!) { change_multiple_column_values(board_id:${PH}, item_id:$iid, column_values:$c) { id } }`,
+async function markSent(itemId, boardId, label='Sent') {
+  const r = await M(`mutation ($iid:ID!, $c:JSON!) { change_multiple_column_values(board_id:${boardId}, item_id:$iid, column_values:$c) { id } }`,
     { iid: itemId, c: JSON.stringify({ [COL.emailSent]: { label } }) })
   if (r.errors) console.log(`  ⚠ mark ${itemId} as ${label}: ${JSON.stringify(r.errors)}`)
   return !r.errors
@@ -149,9 +157,12 @@ async function main() {
     const tpl = TEMPLATES[gid]
     if (!tpl) { console.log(`  ⚠ no template for group ${gid} — skipping`); continue }
 
-    console.log(`\n═══ ${tpl.label} (${gid}) ═══`)
-    const items = await fetchGroupItems(gid)
-    console.log(`  ${items.length} items in group`)
+    console.log(`\n═══ ${tpl.label} (${gid}) — scanning ${SEARCH_BOARDS.length} board(s) ═══`)
+    // Pull the group from every known board and merge — during migration the
+    // same group id exists on both CHATTER DATABASE and HIRING PIPELINE.
+    const boardPages = await Promise.all(SEARCH_BOARDS.map(b => fetchGroupItems(gid, b)))
+    const items = boardPages.flat()
+    for (let i = 0; i < SEARCH_BOARDS.length; i++) console.log(`  board ${SEARCH_BOARDS[i]}: ${boardPages[i].length} items`)
 
     const pending = items.filter(it => {
       const sent = it.column_values.find(c => c.id === COL.emailSent)?.text || ''
@@ -176,17 +187,17 @@ async function main() {
       }
       stats.attempted++
       if (DRY) {
-        console.log(`  [DRY] ${it.name} <${email}>`)
+        console.log(`  [DRY] ${it.name} <${email}>  (board=${it._boardId})`)
         continue
       }
       const r = await sendEmail({ to: email, subject: tpl.subject, html: tpl.html({ name: firstName }) })
       if (!r.ok) {
         stats.failed++
         console.log(`  ✗ ${it.name} <${email}>: ${r.error}`)
-        await markSent(it.id, 'Failed')
+        await markSent(it.id, it._boardId, 'Failed')
       } else {
         stats.sent++
-        await markSent(it.id, 'Sent')
+        await markSent(it.id, it._boardId, 'Sent')
         console.log(`  ✓ ${it.name} <${email}> · resend=${r.id}`)
       }
       // Rate limit: Resend allows 10/sec; we do ~5/sec to stay safe under bursts.
