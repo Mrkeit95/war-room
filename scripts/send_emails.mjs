@@ -60,6 +60,7 @@ const TEMPLATES = {
 <p>• @mtnx0 (Milosz)</p>
 <p>We look forward to reviewing your submission.</p>
 <p>Kind regards,<br/>The Chatstars Team</p>
+<p style="color:#888;font-size:12px;margin-top:24px">THIS IS AN AUTOMATED EMAIL, DO NOT REPLY</p>
 `.trim(),
   },
   [G_NEX]: {
@@ -75,6 +76,7 @@ const TEMPLATES = {
 <p>• @applebee1113<br/>• @pau_chtstrs</p>
 <p>We look forward to having you.</p>
 <p>Kind regards,<br/>The Chatstars Team</p>
+<p style="color:#888;font-size:12px;margin-top:24px">THIS IS AN AUTOMATED EMAIL, DO NOT REPLY</p>
 `.trim(),
   },
 }
