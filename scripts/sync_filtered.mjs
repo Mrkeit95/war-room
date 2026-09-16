@@ -181,6 +181,12 @@ async function main() {
 
     console.log(`  ✓ moved ${match.name} → FILTERED (EXP) · ${respEmail}`)
     moved++
+    // In-memory state must reflect the move so any *older* Typeform responses
+    // from the same email (multiple submissions from one candidate) get
+    // treated as "already filtered" on subsequent iterations of this run —
+    // instead of triggering a redundant move (no-op) and a duplicate Q&A post.
+    filteredEmails.add(respEmail)
+    filteredNames.add(match.name.toLowerCase().trim())
     await new Promise(r => setTimeout(r, 200))
   }
 
