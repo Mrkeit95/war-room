@@ -1,0 +1,37 @@
+name: Sync referral filter (Typeform → CHATTER DB Q&A note)
+
+# Runs every 15 min. Pulls responses from the "Experienced chatter- Filtering
+# (Referrals)" Typeform (EkmOttNH) and posts the full follow-up Q&A as an
+# Update on the Monday item that Monday's own Typeform automation just
+# created (in CHATTER DATABASE, typically TYPEFORM group).
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: referrals-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run referral sync
+        env:
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
+          MONDAY_BOARD_ID_PH: ${{ secrets.MONDAY_BOARD_ID_PH }}
+          MONDAY_BOARD_ID_HIRING: ${{ secrets.MONDAY_BOARD_ID_HIRING }}
+          TYPEFORM_TOKEN: ${{ secrets.TYPEFORM_TOKEN }}
+        run: |
+          echo "Syncing referral filter at $(date -u)"
+          node scripts/sync_referrals.mjs
