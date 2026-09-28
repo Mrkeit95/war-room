@@ -31,7 +31,14 @@ const PH = process.env.MONDAY_BOARD_ID_PH        // CHATTER DATABASE
 const HIRING = process.env.MONDAY_BOARD_ID_HIRING // HIRING PIPELINE
 const SEARCH_BOARDS = [...new Set([PH, HIRING].filter(Boolean))]
 
-const COL = { email: 'email_mkmyj2e4' }
+const COL = {
+  source: 'text_mknf4048',
+  email: 'email_mkmyj2e4',
+  telegram: 'text_mkmyfzv0',
+  discord: 'text_mm57381d',
+  phone: 'text_mkmysvvs',
+  country: 'text_mkmy8ag1',
+}
 
 const clean = v => (v || '').trim()
 const M = (q, v) => fetch('https://api.monday.com/v2', {
@@ -101,12 +108,18 @@ async function main() {
     return
   }
 
-  // Detect email + name question ids
+  // Detect field ids for the questions we care about
   const flat = []
   const w = fs => { for (const f of fs ?? []) { flat.push(f); if (f.properties?.fields) w(f.properties.fields) } }
   w(formJ.fields)
-  const emailFieldId = flat.find(f => /email/i.test(f.title))?.id
-  const nameFieldId = flat.find(f => /full name/i.test(f.title))?.id
+  const findId = re => flat.find(f => re.test(f.title || ''))?.id
+  const emailFieldId    = findId(/email/i)
+  const nameFieldId     = findId(/full name/i)
+  const telegramFieldId = findId(/telegram/i)
+  const discordFieldId  = findId(/discord/i)
+  const phoneFieldId    = findId(/phone/i)
+  const countryFieldId  = findId(/country/i)
+  const referrerFieldId = findId(/referred by/i)
   if (!emailFieldId) throw new Error('No email question found in referral form')
 
   const ansV = (answers, fid) => {
@@ -150,10 +163,33 @@ async function main() {
 
     if (await hasReferralUpdate(match.id)) { alreadyPosted++; continue }
 
+    // Pull the contact fields + referrer from the response so we can stamp
+    // them onto the Monday item (Monday's own Typeform automation only fills
+    // name/email — we backfill the rest here).
+    const cleanCred = s => clean(s).replace(/^@+/, '')
+    const respTelegram = telegramFieldId ? cleanCred(ansV(r.answers, telegramFieldId)) : ''
+    const respDiscord  = discordFieldId  ? cleanCred(ansV(r.answers, discordFieldId))  : ''
+    const respPhone    = phoneFieldId    ? clean(ansV(r.answers, phoneFieldId))        : ''
+    const respCountry  = countryFieldId  ? clean(ansV(r.answers, countryFieldId))      : ''
+    const respReferrer = referrerFieldId ? clean(ansV(r.answers, referrerFieldId))     : ''
+    const sourceTag = respReferrer ? `EMPLOYEE REFERRAL — ${respReferrer}` : 'EMPLOYEE REFERRAL'
+
     if (DRY) {
-      console.log(`  [DRY POST] ${match.name} (${respEmail}) → Q&A update`)
+      console.log(`  [DRY POST] ${match.name} (${respEmail}) → Q&A update + source="${sourceTag}"`)
       continue
     }
+
+    // Stamp contact fields + source onto the Monday item.
+    const cv = { [COL.source]: sourceTag }
+    if (respEmail)    cv[COL.email]    = { email: respEmail, text: respEmail }
+    if (respTelegram) cv[COL.telegram] = respTelegram
+    if (respDiscord)  cv[COL.discord]  = respDiscord
+    if (respPhone)    cv[COL.phone]    = respPhone
+    if (respCountry)  cv[COL.country]  = respCountry
+    const matchBoard = itemBoard.get(String(match.id)) || PH
+    const upd = await M(`mutation($iid:ID!, $c:JSON!){ change_multiple_column_values(board_id:${matchBoard}, item_id:$iid, column_values:$c){ id } }`,
+      { iid: match.id, c: JSON.stringify(cv) })
+    if (upd.errors) console.log(`  ⚠ column write on ${match.name}: ${JSON.stringify(upd.errors)}`)
 
     // Build Q&A body (same style as sync_filtered.mjs)
     const lines = [UPDATE_MARKER, '']
