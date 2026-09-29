@@ -60,19 +60,16 @@ const G_PW1 = 'group_mkna78sd' // PENDING WEEK 1 (gets the NON EXP training emai
 const TEMPLATES = {
   [G_EXP]: {
     label: 'APPLICANTS (C) EXP',
-    subject: 'Chatstars — Next step to continue your application',
+    subject: 'Chatstars — Book your chat trial call',
     html: ({ name }) => `
-<p>Hi ${name || 'there'},</p>
-<p>Thank you for applying to Chatstars.</p>
-<p>To continue your application, we need you to complete the next step of our hiring process — a short follow-up form. This helps our team properly assess your experience and confirm you're a fit for the role.</p>
-<p><strong>You must complete this step in order to move forward:</strong></p>
-<p>👉 <a href="https://fe02gsro908.typeform.com/to/KnkH7pY6">https://fe02gsro908.typeform.com/to/KnkH7pY6</a></p>
-<p>It takes around 2 minutes. Once submitted, our team will review your responses and be in touch with the next steps.</p>
-<p>If you have any questions, you can reach our hiring manager on Telegram:</p>
-<p>• @mtnx0 (Milosz)</p>
-<p>We look forward to reviewing your submission.</p>
-<p>Kind regards,<br/>The Chatstars Team</p>
-<p style="color:#888;font-size:12px;margin-top:24px">THIS IS AN AUTOMATED EMAIL, DO NOT REPLY</p>
+<p>Hey ${name || 'there'}</p>
+<p>Thanks for applying with ChatStars!</p>
+<p>You've applied as an experienced OF chatter — so we'd like to skip the paperwork and get you straight into a chat trial.</p>
+<p>Book a quick 30-min call with Kian, our hiring manager, and we'll set up your chat trial right after:</p>
+<p>👉 <a href="https://cal.com/kian-training-66kndk/30min">https://cal.com/kian-training-66kndk/30min</a></p>
+<p>If you have any questions before the call, reach Kian directly:</p>
+<p>• Email: <a href="mailto:kian@chatstars.co">kian@chatstars.co</a><br/>• Telegram: @kiannofm</p>
+<p>Talk soon,<br/>The ChatStars Team</p>
 `.trim(),
   },
   [G_NEX]: {
