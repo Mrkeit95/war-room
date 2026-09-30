@@ -54,6 +54,7 @@ const emailSentColFor = boardId => EMAIL_SENT_COL_BY_BOARD[String(boardId)] || E
 const G_EXP = 'group_mm6wk20'  // APPLICANTS (C) EXP
 const G_NEX = 'group_mm6tcv2t' // APPLICANTS (C) NON EXP
 const G_PW1 = 'group_mkna78sd' // PENDING WEEK 1 (gets the NON EXP training email)
+const G_REF_R = 'group_mm7nm7hw' // REFERRALS (EXP) (R) — Rachel-sourced EXP referrals
 
 // ─── Email templates ──────────────────────────────────────────────────
 // One entry per Monday group we send from. Adding another group is 4 lines.
@@ -81,6 +82,20 @@ const TEMPLATES = {
     label: 'PENDING WEEK 1',
     subject: 'Chatstars — Next steps to begin training',
     html: ({ name }) => nonExpTrainingHtml(name),
+  },
+  [G_REF_R]: {
+    label: 'REFERRALS (EXP) (R)',
+    subject: 'Chatstars — Book your chat trial call',
+    html: ({ name }) => `
+<p>Hey ${name || 'there'}</p>
+<p>Thanks for applying with ChatStars!</p>
+<p>You've been referred to us as an experienced OF chatter — so we'd like to skip the paperwork and get you straight into a chat trial.</p>
+<p>Book a quick 30-min call with Kian, our hiring manager, and we'll set up your chat trial right after:</p>
+<p>👉 <a href="https://cal.com/kian-training-66kndk/30min">https://cal.com/kian-training-66kndk/30min</a></p>
+<p>If you have any questions before the call, reach Kian directly:</p>
+<p>• Email: <a href="mailto:kian@chatstars.co">kian@chatstars.co</a><br/>• Telegram: @kiannofm</p>
+<p>Talk soon,<br/>The ChatStars Team</p>
+`.trim(),
   },
 }
 
