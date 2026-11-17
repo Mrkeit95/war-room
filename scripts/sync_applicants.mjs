@@ -158,7 +158,7 @@ async function main() {
 
   console.log('Loading blacklist guard…')
   const guard = await loadGuard()
-  console.log(`  ${guard.stats.sheet} sheet rows + ${guard.stats.mondayOff} monday-off + ${guard.stats.mondayBl} monday-bl`)
+  console.log(`  ${guard.stats.sheet1} sheet1 + ${guard.stats.sheet2} sheet2 + ${guard.stats.mondayOff} monday-off + ${guard.stats.mondayBl} monday-bl`)
   console.log(`  lookup sizes: ${guard.sizes.emails} emails, ${guard.sizes.phones} phones, ${guard.sizes.telegrams} tgs, ${guard.sizes.names} names\n`)
 
   console.log(`Loading Monday state (EVERY group on ${DEDUP_BOARDS.length} board(s) for dedupe)…`)

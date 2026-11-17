@@ -26,22 +26,53 @@
  * Requires env: MONDAY_API_TOKEN, MONDAY_BOARD_ID_PH
  */
 
-const BL_SHEET_ID = '1h7KqjMJtcykSOP1YbE7QRJtMoiElGIhRfWL17YKxYKw'
+// Two blacklist dump sheets. Columns differ between them, so each gets its
+// own column-index map below. Both are merged into the same lookup tables.
+const BL_SHEET_1_ID = '1h7KqjMJtcykSOP1YbE7QRJtMoiElGIhRfWL17YKxYKw' // Chatter offboard log (original)
+const BL_SHEET_2_ID = '1M8gydeqJAC9mRTtTCBqs5NpIywqmz099iF7fokLYRik' // BLACKLIST HIT dump (sync_applicants writes here)
 const G_OFF = 'new_group_mkmfp0tz'   // OFFBOARDED
 const G_BL  = 'group_mknjjdjm'        // BLACKLISTED
 const COL_EMAIL = 'email_mkmyj2e4'
 const COL_TG    = 'text_mkmyfzv0'
 const COL_PHONE = 'text_mkmysvvs'
 
+// Sentinel values that mean "no real data here" — must normalize to ''.
+// This list stops a placeholder like "/" from becoming a shared lookup key
+// that false-matches every candidate with the same placeholder.
+const JUNK_SENTINELS = new Set([
+  "i don't have", "dont have", "don't have",
+  "no", "na", "n/a", "none", "null", "undefined",
+  "-", "—", "–", "/", "?", ".", "..", "...",
+  "#error!", "#n/a", "n.a.", "nil",
+  "",
+])
+
 const clean = v => (v || '').trim()
-export const normEmail = v => clean(v).toLowerCase()
-export const normPhone = v => clean(v).replace(/[^\d]/g, '').replace(/^0+/, '').replace(/^63/, '')
-export const normTg = v => {
-  let s = clean(v).toLowerCase().replace(/^@/, '').replace(/^t\.me\//, '')
-  if (["i don't have", "don't have", "no", "na", "n/a", "none", "-", "–", "#error!", ""].includes(s)) return ''
+const isJunk = s => JUNK_SENTINELS.has(s) || /^[^\p{L}\p{N}]+$/u.test(s) // only punctuation = junk
+export const normEmail = v => {
+  const s = clean(v).toLowerCase()
+  if (!s || isJunk(s)) return ''
+  // Enforce real email shape — "/" or random text can't poison byEmail.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return ''
   return s
 }
-export const normName = v => clean(v).toLowerCase().replace(/\s+/g, ' ')
+export const normPhone = v => clean(v).replace(/[^\d]/g, '').replace(/^0+/, '').replace(/^63/, '')
+export const normTg = v => {
+  let s = clean(v).toLowerCase().replace(/^@/, '').replace(/^t\.me\//, '').replace(/^https?:\/\/t\.me\//, '')
+  if (isJunk(s)) return ''
+  // Telegram usernames are 5-32 chars, letters/digits/underscore. Anything
+  // shorter or with disallowed chars is placeholder or malformed.
+  if (s.length < 5 || !/^[a-z0-9_ .-]+$/i.test(s)) return ''
+  return s
+}
+export const normName = v => {
+  const s = clean(v).toLowerCase().replace(/\s+/g, ' ')
+  if (!s || isJunk(s)) return ''
+  // Must be first+last (contain a space) and at least 5 chars — else too
+  // generic to safely blacklist on name alone.
+  if (!/\s/.test(s) || s.length < 5) return ''
+  return s
+}
 
 async function fetchSheetTab(id, name) {
   const url = name
@@ -107,7 +138,11 @@ export async function loadGuard() {
     mondayReads.push(pageGroupFull(hiringBoardId, G_OFF, [COL_EMAIL, COL_TG, COL_PHONE]))
     mondayReads.push(pageGroupFull(hiringBoardId, G_BL,  [COL_EMAIL, COL_TG, COL_PHONE]))
   }
-  const [sheet, ...groups] = await Promise.all([fetchSheetTab(BL_SHEET_ID, ''), ...mondayReads])
+  const [sheet1, sheet2, ...groups] = await Promise.all([
+    fetchSheetTab(BL_SHEET_1_ID, ''),
+    fetchSheetTab(BL_SHEET_2_ID, ''),
+    ...mondayReads,
+  ])
   const [chatOffItems, chatBlItems, hpOffItems = [], hpBlItems = []] = groups
   // Merge same-role items from both boards. Callers just see one unified list.
   const offItems = [...chatOffItems, ...hpOffItems]
@@ -117,25 +152,32 @@ export async function loadGuard() {
   const byPhone = new Map()
   const byTg    = new Map()
   const byName  = new Map()
-  const stats = { sheet: 0, mondayOff: 0, mondayBl: 0, byStatus: {} }
+  const stats = { sheet1: 0, sheet2: 0, mondayOff: 0, mondayBl: 0, byStatus: {} }
 
-  // Sheet columns (fixed positions in this specific sheet)
-  const iName = 0, iStatus = 9, iTg = 10, iEmail = 11, iPhone = 12
-  for (const r of sheet.rows) {
-    const name = clean(r[iName]); if (!name) continue
-    stats.sheet++
-    const status = clean(r[iStatus]) || '(blank)'
-    stats.byStatus[status] = (stats.byStatus[status] ?? 0) + 1
-    const rec = {
-      name, status, source: 'sheet',
-      email: normEmail(r[iEmail]),
-      phone: normPhone(r[iPhone]),
-      tg: normTg(r[iTg]),
+  // Per-sheet column layouts. Both sheets ship Name/Status/Telegram/Email/Phone
+  // but at different positions, so each needs its own index map.
+  const SHEET_MAPS = [
+    { label: 'sheet1', data: sheet1, idx: { name: 0, status: 9,  tg: 10, email: 11, phone: 12 } }, // Chatter offboard log
+    { label: 'sheet2', data: sheet2, idx: { name: 0, status: 10, tg: 11, email: 12, phone: 13 } }, // BLACKLIST HIT dump
+  ]
+  for (const { label, data, idx } of SHEET_MAPS) {
+    for (const r of data.rows) {
+      const name = clean(r[idx.name]); if (!name) continue
+      stats[label]++
+      const status = clean(r[idx.status]) || '(blank)'
+      stats.byStatus[status] = (stats.byStatus[status] ?? 0) + 1
+      const rec = {
+        name, status, source: label,
+        email: normEmail(r[idx.email]),
+        phone: normPhone(r[idx.phone]),
+        tg: normTg(r[idx.tg]),
+      }
+      const nn = normName(name)
+      if (rec.email) byEmail.set(rec.email, rec)
+      if (rec.phone && rec.phone.length >= 7) byPhone.set(rec.phone, rec)
+      if (rec.tg) byTg.set(rec.tg, rec)
+      if (nn) byName.set(nn, rec)
     }
-    if (rec.email) byEmail.set(rec.email, rec)
-    if (rec.phone && rec.phone.length >= 7) byPhone.set(rec.phone, rec)
-    if (rec.tg) byTg.set(rec.tg, rec)
-    byName.set(normName(name), rec)
   }
 
   // Group IDs candidate should land in when hit — matches where they were.
@@ -162,10 +204,11 @@ export async function loadGuard() {
         tg: normTg(cvs[COL_TG]),
       }
       // Monday records override sheet records (more current + more precise routing).
+      const nn = normName(it.name)
       if (rec.email) byEmail.set(rec.email, rec)
       if (rec.phone && rec.phone.length >= 7) byPhone.set(rec.phone, rec)
       if (rec.tg) byTg.set(rec.tg, rec)
-      byName.set(normName(it.name), rec)
+      if (nn) byName.set(nn, rec)
     }
   }
   const off = { value: 0 }, bl = { value: 0 }
