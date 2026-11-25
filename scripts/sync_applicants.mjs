@@ -23,6 +23,8 @@
  */
 
 import { loadGuard, normEmail, normPhone, normTg, normName } from './blacklist_guard.mjs'
+import { checkJunk } from './junk_filter.mjs'
+import { checkCountry } from './country_filter.mjs'
 
 const DRY = process.argv.includes('--dry') || process.argv.includes('--dry-run')
 
@@ -188,7 +190,7 @@ async function main() {
   const isPH = l => /philippines|^ph$/i.test(l.country) || /^\+?639\d{8,10}$/.test((l.phone||'').replace(/\s/g,'')) || /^639\d{8,10}$/.test((l.country||'').replace(/\s/g,''))
   const inferCountry = l => l.country && !/^\d+$/.test(l.country.replace(/\s/g,'')) ? l.country : (isPH(l) ? 'Philippines' : (l.country || ''))
 
-  const buckets = { skipped: [], blocked: [], created: { exp: [], nex: [] }, failed: [] }
+  const buckets = { skipped: [], blocked: [], junk: [], country: [], created: { exp: [], nex: [] }, failed: [] }
   for (const l of all) {
     const name = `${l.first} ${l.last}`.trim()
     if (!name) { buckets.skipped.push({ ...l, reason: 'no name' }); continue }
@@ -200,6 +202,11 @@ async function main() {
     const country = inferCountry(l)
     const source = country === 'Philippines' ? 'Meta Lead Ad (PH)' : (/serbia/i.test(country) ? 'Meta Lead Ad (EU)' : 'Meta Lead Ad')
 
+    // Junk filter (fake/test submissions by name + email).
+    const junk = !hit && checkJunk({ name, email: l.email })
+    // Country allowlist (US, UK, all Europe, PH). Skip if blacklist already caught.
+    const geo = !hit && !(junk && junk.isJunk) && checkCountry({ country, phone: l.phone })
+
     let targetGroup, tag, sourceTag = source
     if (hit) {
       // Route to the same group they were in previously (OFFBOARDED vs BLACKLISTED).
@@ -209,14 +216,27 @@ async function main() {
       tag = `BLOCKED→${destName}`
       sourceTag = `BLACKLIST HIT (${hit.status}, via ${hit.via}) — was going to ${exp ? 'Exp' : 'NonExp'}`
       buckets.blocked.push({ ...l, name, hit, dest: destName })
+    } else if (junk && junk.isJunk) {
+      targetGroup = G_OFF
+      tag = `JUNK→OFFBOARDED`
+      sourceTag = `JUNK (${junk.reason}) — was going to ${exp ? 'Exp' : 'NonExp'}`
+      buckets.junk.push({ ...l, name, reason: junk.reason })
+    } else if (geo && !geo.allowed) {
+      targetGroup = G_OFF
+      tag = `COUNTRY→OFFBOARDED`
+      sourceTag = `${geo.tag} — was going to ${exp ? 'Exp' : 'NonExp'}`
+      buckets.country.push({ ...l, name, country, reason: geo.reason })
     } else {
       targetGroup = exp ? G_EXP : G_NEX
       tag = exp ? 'EXP' : 'NEX'
     }
 
     if (DRY) {
-      console.log(`  [DRY ${tag}] ${name}  ·  ${country}${hit ? `  ·  matched "${hit.name}" (${hit.status}) via ${hit.via}` : ''}`)
-      if (!hit) buckets.created[exp ? 'exp' : 'nex'].push({ name, country, l })
+      const extra = hit ? `  ·  matched "${hit.name}" (${hit.status}) via ${hit.via}`
+                  : (junk?.isJunk ? `  ·  junk: ${junk.reason}`
+                  : ((geo && !geo.allowed) ? `  ·  country-block: ${geo.reason}` : ''))
+      console.log(`  [DRY ${tag}] ${name}  ·  ${country}${extra}`)
+      if (!hit && !(junk?.isJunk) && !(geo && !geo.allowed)) buckets.created[exp ? 'exp' : 'nex'].push({ name, country, l })
       continue
     }
 
@@ -244,7 +264,8 @@ async function main() {
 
     // Q&A update
     const q = (t, v) => (v && v !== '–' && v !== '-') ? `**${t}**\n${v}\n\n` : ''
-    const body = [`Meta Lead Ad — synced from sheet${hit ? ' — BLACKLIST HIT' : ''}`, '',
+    const reasonTag = hit ? ' — BLACKLIST HIT' : (junk?.isJunk ? ' — JUNK' : (geo && !geo.allowed ? ' — COUNTRY BLOCK' : ''))
+    const body = [`Meta Lead Ad — synced from sheet${reasonTag}`, '',
       q('Country', country), q('English level', l.english), q('Hours available per week', l.hours),
       q('Prior experience as OF Chatter?', l.prevExp),
       q('Time since last chatter job', l.timeSince),
@@ -253,6 +274,8 @@ async function main() {
       q('UTM source / medium', `${l.utmSrc} / ${l.utmMed}`.replace(/^\s*\/\s*$/,'')),
       q('Submitted', l.date),
       hit ? q('BLACKLIST MATCH', `${hit.name} · ${hit.status} · matched via ${hit.via}`) : '',
+      (junk?.isJunk) ? q('JUNK FILTER', junk.reason) : '',
+      (geo && !geo.allowed) ? q('COUNTRY BLOCK', geo.reason) : '',
     ].join('')
     await M(`mutation ($iid: ID!, $b: String!) { create_update(item_id: $iid, body: $b) { id } }`, { iid, b: body })
     await new Promise(r => setTimeout(r, 200))
@@ -263,13 +286,23 @@ async function main() {
   console.log('\n═══ SUMMARY ═══')
   console.log(`  ✓ ${buckets.created.exp.length} created in APPLICANTS (C) Exp`)
   console.log(`  ✓ ${buckets.created.nex.length} created in APPLICANTS (C) Non Exp`)
-  console.log(`  🚫 ${buckets.blocked.length} blocked → ${blockedToOff} to OFFBOARDED, ${blockedToBl} to BLACKLISTED`)
+  console.log(`  🚫 ${buckets.blocked.length} blacklist-blocked → ${blockedToOff} to OFFBOARDED, ${blockedToBl} to BLACKLISTED`)
+  console.log(`  🗑 ${buckets.junk.length} junk-blocked → OFFBOARDED`)
+  console.log(`  🌍 ${buckets.country.length} country-blocked → OFFBOARDED`)
   console.log(`  ⏭ ${buckets.skipped.length} skipped (already on Monday or no name)`)
   console.log(`  ✗ ${buckets.failed.length} failed`)
 
   if (buckets.blocked.length > 0) {
-    console.log('\nBLOCKED CANDIDATES:')
+    console.log('\nBLACKLIST HITS:')
     for (const b of buckets.blocked) console.log(`  · ${b.name}  →  ${b.dest}  ·  matched "${b.hit.name}" (${b.hit.status}) via ${b.hit.via}`)
+  }
+  if (buckets.junk.length > 0) {
+    console.log('\nJUNK:')
+    for (const b of buckets.junk) console.log(`  · ${b.name}  ·  ${b.reason}`)
+  }
+  if (buckets.country.length > 0) {
+    console.log('\nCOUNTRY-BLOCKED:')
+    for (const b of buckets.country) console.log(`  · ${b.name}  ·  ${b.country}  ·  ${b.reason}`)
   }
 }
 
