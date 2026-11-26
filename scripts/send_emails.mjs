@@ -22,6 +22,10 @@
 const DRY = process.argv.includes('--dry') || process.argv.includes('--dry-run')
 const ONLY_GROUP = (process.argv.find(a => a.startsWith('--only-group=')) || '').split('=')[1]
 const LIMIT = Number((process.argv.find(a => a.startsWith('--limit=')) || '').split('=')[1]) || Infinity
+// --resend-all bypasses the "Email Sent" filter so previously-emailed candidates
+// get the current template again. Use when you've updated the template and want
+// to re-blast the whole group. Marks Sent column again on each send (idempotent).
+const RESEND_ALL = process.argv.includes('--resend-all')
 const TEST_TO = (process.argv.find(a => a.startsWith('--test=')) || '').split('=')[1]
 const ONLY_EMAIL = ((process.argv.find(a => a.startsWith('--only-email=')) || '').split('=')[1] || '').toLowerCase()
 
@@ -75,12 +79,12 @@ const TEMPLATES = {
   },
   [G_NEX]: {
     label: 'APPLICANTS (C) NON EXP',
-    subject: 'Chatstars — Next steps to begin training',
+    subject: 'Your free Chatstars training starts this week — earn $1.5k–$12k/mo',
     html: ({ name }) => nonExpTrainingHtml(name),
   },
   [G_PW1]: {
     label: 'PENDING WEEK 1',
-    subject: 'Chatstars — Next steps to begin training',
+    subject: 'Your free Chatstars training starts this week — earn $1.5k–$12k/mo',
     html: ({ name }) => nonExpTrainingHtml(name),
   },
   [G_REF_R]: {
@@ -104,40 +108,54 @@ const TEMPLATES = {
 function nonExpTrainingHtml(name) {
   const first = name || 'there'
   return `
-<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.6">
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.65;background:#ffffff">
 
-  <p style="font-size:16px">Hi ${first},</p>
+  <p style="font-size:16px;margin:0 0 14px">Hi ${first},</p>
 
-  <p>Welcome to <strong>Chatstars</strong> — one of the <strong>top 2 ranked chat agencies in the world</strong>. We currently generate over <strong>$10 million per month in sales</strong> for our clients, and we're actively expanding our chatter team to keep up with demand.</p>
+  <p style="font-size:15.5px;margin:0 0 14px">Welcome to <strong>Chatstars</strong> — one of the <strong>top 2 ranked chat agencies in the world</strong>. We currently generate over <strong>$10 million per month in sales</strong> for our clients, and we're actively expanding our chatter team to keep up with demand.</p>
 
-  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">What you can earn</h3>
-  <p>Our chatters are currently taking home <strong>between $1,500 and $12,000 USD per month</strong>, working <strong>48-hour weeks</strong>, fully remote.</p>
+  <h3 style="margin:30px 0 10px;color:#c41d3d;font-size:13px;text-transform:uppercase;letter-spacing:.09em;font-weight:700">What you can earn</h3>
 
-  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Your free training</h3>
-  <p>Before you start earning we put every new chatter through our in-house training program — <strong>completely free</strong>. It's the same program our top earners went through on their way to breaking $10k/month.</p>
+  <div style="margin:6px 0 10px">
+    <span style="font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;color:#1a1a1a;line-height:1">$1,500</span>
+    <span style="font-size:13px;color:#8a8378;letter-spacing:.05em;text-transform:uppercase;margin:0 6px">to</span>
+    <span style="font-family:Georgia,'Times New Roman',serif;font-size:30px;font-weight:700;color:#1a1a1a;line-height:1">$12,000</span>
+    <span style="font-size:13px;color:#8a8378;letter-spacing:.05em;text-transform:uppercase;margin-left:6px">USD / month</span>
+  </div>
 
-  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Next step — join our training community</h3>
-  <p>Tap below to join our official ChatStars Telegram group. Once you're in, our bot will DM you to set up training reminders and send you the Google Meet link an hour before each session.</p>
+  <p style="margin:0 0 14px">Our chatters are currently taking home between $1,500 and $12,000 USD per month, working <strong>48-hour weeks</strong>, fully remote. Where you land in that range is up to your drive, consistency, and the client roster you build with us.</p>
 
-  <p style="text-align:center;margin:28px 0">
-    <a href="https://t.me/+UwWcT3-MMVU1YzY1"
-       style="background:#c41d3d;color:#ffffff;padding:16px 36px;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;display:inline-block">
-      Join the ChatStars group
+  <h3 style="margin:30px 0 10px;color:#c41d3d;font-size:13px;text-transform:uppercase;letter-spacing:.09em;font-weight:700">Your free training</h3>
+  <p style="margin:0 0 14px">Before you start earning we put every new chatter through our in-house training program — <strong>completely free</strong>. It's the same program our top earners went through on their way to breaking $10k/month. You'll learn the psychology, scripting, workflow, and platform mechanics needed to perform at an elite level from day one.</p>
+
+  <h3 style="margin:30px 0 10px;color:#c41d3d;font-size:13px;text-transform:uppercase;letter-spacing:.09em;font-weight:700">Confirm your spot</h3>
+  <p style="margin:0 0 14px">The next training cohort starts this week and <strong>seats are limited</strong>. Please confirm you'll attend so we can save yours:</p>
+
+  <div style="text-align:center;margin:30px 0 8px">
+    <a href="https://t.me/ChatstarsHiringBot?start=rsvp"
+       style="background:#c41d3d;color:#ffffff;padding:16px 38px;text-decoration:none;border-radius:10px;font-weight:700;font-size:16px;display:inline-block;letter-spacing:.01em">
+      ✓ Yes, save my seat
     </a>
-  </p>
+    <div style="text-align:center;font-size:12.5px;color:#8a8378;margin-top:8px">Takes 10 seconds · you can cancel any time</div>
+  </div>
 
-  <p>Or message our bot directly: <a href="https://t.me/ChatstarsHiringBot?start=email" style="color:#c41d3d;font-weight:600">@ChatstarsHiringBot</a></p>
+  <h3 style="margin:30px 0 10px;color:#c41d3d;font-size:13px;text-transform:uppercase;letter-spacing:.09em;font-weight:700">Join the training Telegram</h3>
+  <p style="margin:0 0 12px">All schedules, materials, and live Q&amp;A happen here. Join now so you don't miss Day 1:</p>
+  <p style="margin:0 0 14px"><a href="https://t.me/+UwWcT3-MMVU1YzY1" style="color:#c41d3d;font-weight:600;text-decoration:none;border-bottom:1px dashed #c41d3d">→ t.me/+UwWcT3-MMVU1YzY1</a></p>
 
-  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Questions?</h3>
-  <p>Reach our hiring managers on Telegram:<br/>
-    • @applebee1113<br/>
-    • @pau_chtstrs
-  </p>
+  <h3 style="margin:30px 0 10px;color:#c41d3d;font-size:13px;text-transform:uppercase;letter-spacing:.09em;font-weight:700">Questions before training?</h3>
+  <p style="margin:0 0 6px">Reach our hiring managers directly on Telegram:</p>
+  <ul style="list-style:none;padding:0;margin:4px 0 14px">
+    <li style="padding:2px 0;font-size:15px"><span style="color:#c41d3d;font-weight:700;margin-right:10px">·</span>@applebee1113</li>
+    <li style="padding:2px 0;font-size:15px"><span style="color:#c41d3d;font-weight:700;margin-right:10px">·</span>@pau_chtstrs</li>
+  </ul>
 
-  <p style="margin-top:28px">We look forward to having you.</p>
-  <p><strong>— The Chatstars Team</strong></p>
+  <div style="margin-top:30px;padding-top:22px;border-top:1px solid #ece8e0">
+    <p style="margin:0 0 10px">We're excited to see what you'll do here.</p>
+    <p style="margin:0;font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:600;color:#1a1a1a">— The Chatstars Team</p>
+  </div>
 
-  <p style="color:#888;font-size:11px;margin-top:40px;border-top:1px solid #eee;padding-top:16px">
+  <p style="color:#888;font-size:11px;margin-top:28px;border-top:1px solid #eee;padding-top:14px">
     THIS IS AN AUTOMATED EMAIL, DO NOT REPLY
   </p>
 </div>
@@ -226,7 +244,7 @@ async function main() {
 
     const pending = items.filter(it => {
       const sent = it.column_values.find(c => c.id === it._emailSentCol)?.text || ''
-      if (/^sent$/i.test(sent.trim())) return false
+      if (!RESEND_ALL && /^sent$/i.test(sent.trim())) return false
       if (ONLY_EMAIL) {
         const e = (it.column_values.find(c => c.id === COL.email)?.text || '').toLowerCase().trim()
         return e === ONLY_EMAIL

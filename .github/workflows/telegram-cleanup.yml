@@ -1,12 +1,13 @@
 name: Telegram cleanup (expired bot messages)
 
-# Every hour. Deletes bot-posted messages whose delete_after has passed
-# (24h welcome fallbacks, meet-posts past their lifespan, ops alerts).
+# Every 2 minutes. Deletes bot-posted messages whose delete_after has
+# passed (10-min welcome fallbacks, meet-posts past their lifespan, ops
+# alerts) and kicks any user who never DM'd the bot from the main group.
 # Nag rotation deletes are handled inline by telegram_broadcast, not here.
 
 on:
   schedule:
-    - cron: '20 * * * *'
+    - cron: '*/2 * * * *'
   workflow_dispatch:
     inputs:
       dry: { description: 'Dry-run only', required: false, default: 'false' }
