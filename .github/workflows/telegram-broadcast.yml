@@ -1,0 +1,36 @@
+name: Telegram broadcast (main group)
+
+# Mon/Wed/Fri at 11:00am PHT (= 03:00 UTC). Posts rotating nag to the
+# main ChatStars group; auto-deletes the previous nag so the group
+# never carries more than one floating broadcast.
+
+on:
+  schedule:
+    - cron: '0 3 * * 1,3,5'
+  workflow_dispatch:
+    inputs:
+      dry:     { description: 'Dry-run only (no sends, no deletes)', required: false, default: 'false' }
+      variant: { description: 'Force v1 | v2 | v3 (default: pick by weekday)', required: false, default: '' }
+
+concurrency:
+  group: telegram-broadcast
+  cancel-in-progress: false
+
+jobs:
+  broadcast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Post broadcast
+        env:
+          TG_BOT_TOKEN:                 ${{ secrets.TG_BOT_TOKEN }}
+          TG_MAIN_GROUP_CHAT_ID:        ${{ secrets.TG_MAIN_GROUP_CHAT_ID }}
+          NEXT_PUBLIC_SUPABASE_URL:     ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:    ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          if [ -n "${{ github.event.inputs.variant }}" ]; then ARGS="$ARGS --variant=${{ github.event.inputs.variant }}"; fi
+          node scripts/telegram_broadcast.mjs $ARGS

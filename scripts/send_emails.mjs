@@ -99,20 +99,48 @@ const TEMPLATES = {
   },
 }
 
-// Shared body — NON EXP training telegram invite. Same copy for
+// Shared body — NON EXP training outreach. Same copy for
 // APPLICANTS (C) NON EXP and PENDING WEEK 1.
 function nonExpTrainingHtml(name) {
+  const first = name || 'there'
   return `
-<p>Hi ${name || 'there'},</p>
-<p>Thank you for applying to Chatstars.</p>
-<p>To move forward with your application, the next step is to join our official training Telegram channel. All training instructions, schedules, and next steps will be posted there:</p>
-<p>👉 <a href="https://t.me/+Vf1bbHeWTTs4MDg1">https://t.me/+Vf1bbHeWTTs4MDg1</a></p>
-<p>Please join as soon as possible so you don't miss any updates or the start of your training.</p>
-<p>If you have any questions along the way, you can reach our hiring managers on Telegram:</p>
-<p>• @applebee1113<br/>• @pau_chtstrs</p>
-<p>We look forward to having you.</p>
-<p>Kind regards,<br/>The Chatstars Team</p>
-<p style="color:#888;font-size:12px;margin-top:24px">THIS IS AN AUTOMATED EMAIL, DO NOT REPLY</p>
+<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#1a1a1a;line-height:1.6">
+
+  <p style="font-size:16px">Hi ${first},</p>
+
+  <p>Welcome to <strong>Chatstars</strong> — one of the <strong>top 2 ranked chat agencies in the world</strong>. We currently generate over <strong>$10 million per month in sales</strong> for our clients, and we're actively expanding our chatter team to keep up with demand.</p>
+
+  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">What you can earn</h3>
+  <p>Our chatters are currently taking home <strong>between $1,500 and $12,000 USD per month</strong>, working <strong>48-hour weeks</strong>, fully remote.</p>
+
+  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Your free training</h3>
+  <p>Before you start earning we put every new chatter through our in-house training program — <strong>completely free</strong>. It's the same program our top earners went through on their way to breaking $10k/month.</p>
+
+  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Next step — join our training community</h3>
+  <p>Tap below to join our official ChatStars Telegram group. Once you're in, our bot will DM you to set up training reminders and send you the Google Meet link an hour before each session.</p>
+
+  <p style="text-align:center;margin:28px 0">
+    <a href="https://t.me/+UwWcT3-MMVU1YzY1"
+       style="background:#c41d3d;color:#ffffff;padding:16px 36px;text-decoration:none;border-radius:8px;font-weight:600;font-size:16px;display:inline-block">
+      Join the ChatStars group
+    </a>
+  </p>
+
+  <p>Or message our bot directly: <a href="https://t.me/ChatstarsHiringBot?start=email" style="color:#c41d3d;font-weight:600">@ChatstarsHiringBot</a></p>
+
+  <h3 style="margin-top:28px;margin-bottom:8px;color:#111;font-size:14px;text-transform:uppercase;letter-spacing:.08em">Questions?</h3>
+  <p>Reach our hiring managers on Telegram:<br/>
+    • @applebee1113<br/>
+    • @pau_chtstrs
+  </p>
+
+  <p style="margin-top:28px">We look forward to having you.</p>
+  <p><strong>— The Chatstars Team</strong></p>
+
+  <p style="color:#888;font-size:11px;margin-top:40px;border-top:1px solid #eee;padding-top:16px">
+    THIS IS AN AUTOMATED EMAIL, DO NOT REPLY
+  </p>
+</div>
 `.trim()
 }
 

@@ -1,0 +1,35 @@
+name: Telegram daily DM nudges
+
+# Every day at 10:00am PHT (= 02:00 UTC). DMs every active subscriber
+# one message tailored to RSVP status + days-until-training. Dedupes
+# per (user, training_date, nudge_day) via cs_telegram_nudge_log.
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry:   { description: 'Dry-run only', required: false, default: 'false' }
+      limit: { description: 'Cap sends (debug)', required: false, default: '' }
+
+concurrency:
+  group: telegram-daily-nudges
+  cancel-in-progress: false
+
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Send daily nudges
+        env:
+          TG_BOT_TOKEN:              ${{ secrets.TG_BOT_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          if [ -n "${{ github.event.inputs.limit }}" ]; then ARGS="$ARGS --limit=${{ github.event.inputs.limit }}"; fi
+          node scripts/telegram_daily_nudges.mjs $ARGS

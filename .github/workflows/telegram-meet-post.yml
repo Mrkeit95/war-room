@@ -1,0 +1,39 @@
+name: Telegram Meet link posting (training day)
+
+# Every 15 min between Monday 2:30pm-4:05pm PHT (= UTC 06:30-08:05).
+# Fires only when inside the 60-min / 15-min / 0-min window; each window
+# fires exactly once per training (dedup via cs_telegram_bot_message).
+# If no Meet link set, posts an alert to the ops topic instead.
+
+on:
+  schedule:
+    - cron: '30,45 6 * * 1'
+    - cron: '0,15,30,45 7 * * 1'
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry: { description: 'Dry-run only', required: false, default: 'false' }
+
+concurrency:
+  group: telegram-meet-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Post Meet link
+        env:
+          TG_BOT_TOKEN:               ${{ secrets.TG_BOT_TOKEN }}
+          TG_TRAINING_ROOM_CHAT_ID:   ${{ secrets.TG_TRAINING_ROOM_CHAT_ID }}
+          TG_OPS_CHAT_ID:             ${{ secrets.TG_OPS_CHAT_ID }}
+          TG_RSVP_TOPIC_ID:           ${{ secrets.TG_RSVP_TOPIC_ID }}
+          NEXT_PUBLIC_SUPABASE_URL:   ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY:  ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          node scripts/telegram_meet_post.mjs $ARGS

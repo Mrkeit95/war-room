@@ -1,0 +1,44 @@
+name: Telegram ops digest (Pauline + Apple)
+
+# Two triggers:
+#   - Daily 8:00pm PHT (= 12:00 UTC) : --mode=daily (RSVP tracker + trend)
+#   - Monday 8:00am PHT (= 00:00 UTC Mon): --mode=monday (pre-training brief)
+
+on:
+  schedule:
+    - cron: '0 12 * * *'     # Daily 8pm PHT
+    - cron: '0 0 * * 1'      # Monday 8am PHT
+  workflow_dispatch:
+    inputs:
+      mode: { description: 'daily | monday', required: true, default: 'daily' }
+      dry:  { description: 'Dry-run only', required: false, default: 'false' }
+
+concurrency:
+  group: telegram-ops-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Post ops digest
+        env:
+          TG_BOT_TOKEN:              ${{ secrets.TG_BOT_TOKEN }}
+          TG_OPS_CHAT_ID:            ${{ secrets.TG_OPS_CHAT_ID }}
+          TG_RSVP_TOPIC_ID:          ${{ secrets.TG_RSVP_TOPIC_ID }}
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # Decide mode: manual dispatch uses input; schedule picks by UTC time
+          MODE="${{ github.event.inputs.mode }}"
+          if [ -z "$MODE" ]; then
+            HOUR=$(date -u +%H)
+            DOW=$(date -u +%u)   # 1 = Monday
+            if [ "$HOUR" = "00" ] && [ "$DOW" = "1" ]; then MODE="monday"; else MODE="daily"; fi
+          fi
+          ARGS="--mode=$MODE"
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          node scripts/telegram_ops_digest.mjs $ARGS

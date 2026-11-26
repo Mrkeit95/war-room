@@ -1,0 +1,33 @@
+name: Telegram cleanup (expired bot messages)
+
+# Every hour. Deletes bot-posted messages whose delete_after has passed
+# (24h welcome fallbacks, meet-posts past their lifespan, ops alerts).
+# Nag rotation deletes are handled inline by telegram_broadcast, not here.
+
+on:
+  schedule:
+    - cron: '20 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry: { description: 'Dry-run only', required: false, default: 'false' }
+
+concurrency:
+  group: telegram-cleanup
+  cancel-in-progress: false
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Cleanup expired bot messages
+        env:
+          TG_BOT_TOKEN:              ${{ secrets.TG_BOT_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL:  ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          ARGS=""
+          if [ "${{ github.event.inputs.dry }}" = "true" ]; then ARGS="$ARGS --dry"; fi
+          node scripts/telegram_cleanup.mjs $ARGS
