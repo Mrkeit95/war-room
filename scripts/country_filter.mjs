@@ -59,13 +59,21 @@ export function checkCountry({ country, phone } = {}) {
     }
   }
 
-  // Phone fallback for missing/"Other"/"N/A" country
+  // Phone fallback for missing/"Other"/"N/A" country.
+  // We DO NOT strip leading zeros: a local-format number (e.g. Egypt "01012345678")
+  // starting with 0 can't be classified without a country code, and stripping used
+  // to make Egyptian/other African locals look like NANP (+1).
   const unknown = !c || c === 'other' || c === 'n a' || c === 'na' || c === 'unknown'
   if (unknown) {
-    const digits = (phone || '').toString().replace(/\D/g, '').replace(/^0+/, '')
+    const digits = (phone || '').toString().replace(/\D/g, '')
     if (digits) {
       for (const p of ALLOWED_PHONE_PREFIXES) {
-        if (digits.startsWith(p)) return { allowed: true, reason: `phone matched +${p} (country was "${country || 'empty'}")` }
+        if (!digits.startsWith(p)) continue
+        // NANP (+1) is extra-leaky: enforce real shape — 11 digits total, area
+        // code first digit 2-9. Blocks Egyptian "1012345678" (10 digits, '0' area)
+        // without blocking any real US/Canada submission.
+        if (p === '1' && !(digits.length === 11 && /^1[2-9]/.test(digits))) continue
+        return { allowed: true, reason: `phone matched +${p} (country was "${country || 'empty'}")` }
       }
       return { allowed: false, reason: `country="${country || 'empty'}", phone +${digits.slice(0, 4)}… not in allowlist`, tag: `BLOCKED (phone +${digits.slice(0, 3)})` }
     }
